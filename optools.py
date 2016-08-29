@@ -4,23 +4,30 @@ from scipy.special import erf
 from scipy.stats import norm
 from scipy.optimize import fsolve
 
-def lossWrapper(par, wght, K, rf, cTrue, fTrue, is_iv, W):
+# def cosntruct
+
+def objFunForRND(par, wght, K, rf, cTrue, fTrue, is_iv, W = None):
     """
     """
     # decompose par into mu and sigma
-    mu = par[1,:]
-    sigma = par[2,:]
+    mu = par[0,:]
+    sigma = par[1,:]
 
     # fitted values
     cHat = priceUnderMixture(K, rf, mu, sigma, wght)
     fHat = np.dot(wght, np.exp(mu + 0.5*sigma*sigma))
 
-    # if implied_vol
+    # if implied_vol, transform to iv and log-prices
     if is_iv:
-        cHat = bsIV()
+        cHat = bsIV(cHat, fHat, K, rf, tau = 1)
+        fHat = np.log(fHat); fTrue = np.log(fTrue)
 
+    # pack into objective
+    res = lossFun(cTrue, cHat, fTrue, fHat, W)
 
-def lossFun(cTrue, cHat, fTrue, fHat, is_iv = True, W = None):
+    return res
+
+def lossFun(cTrue, cHat, fTrue, fHat, W = None):
     """
     Loss function.
     Parameters
@@ -31,24 +38,28 @@ def lossFun(cTrue, cHat, fTrue, fHat, is_iv = True, W = None):
     if W is None:
         W = np.eye(len(cHat))
 
+    # deviations from options prices (ivs)
     cDev = cTrue - cHat
-    fDev = np.log(fTrue/fHat) if is_iv else (fTrue - fHat)
+    # deviations from forward price (log-price)
+    fDev = fTrue - fHat
 
+    # loss: quadratic form of deviations with weights in W
     loss = 1e04*(np.dot(cDev, np.dot(W, cDev)) + fDev*fDev)
 
     return loss
 
-def bsIV(cHat, f, K, rf, tau):
+def bsIV(cHat, f, K, rf, tau, **kwargs):
     """
+    Parameters
+    ----------
+    **kwargs:
+        other arguments to fsolve
     """
     # fprime: derivative of bsPrice, or vega
-
-    # fprime: f*e^{-rf*tau} is the same as S*e^{-y*tau}
+    # f*e^{-rf*tau} is the same as S*e^{-y*tau}
     # lower part is dplus
     fPrime = lambda x: np.diag(f*np.exp(-rf*tau)*np.sqrt(tau)*norm.pdf(
         (np.log(f/K) + x*x/2*tau)/(x*np.sqrt(tau))))
-
-    # fPrime(sigma)
 
     # saddle point (Wystup (2006), p. 19)
     saddle = np.sqrt(2/tau * np.abs(np.log(f/K)))
@@ -59,7 +70,7 @@ def bsIV(cHat, f, K, rf, tau):
 
     # solve with fsolve
     res = fsolve(func = lambda x: bsIVobjective(cHat, f, K, rf, tau, x),
-        x0 = saddle, fprime = fPrime)
+        x0 = saddle, fprime = fPrime, **kwargs)
 
     return res
 
