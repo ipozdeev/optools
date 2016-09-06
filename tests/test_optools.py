@@ -130,35 +130,54 @@ class TestHarderFormulas(unittest.TestCase):
 
         self.assertAlmostEqual(res, 0.0, places = 2)
 
-    def test_estimate_rnd(self):
-        """
-        """
+    # def test_estimate_rnd(self):
+    #     """
+    #     """
+    #     self.K = np.arange(85,95,2)
+    #     self.sigma = np.random.random(2)
+    #
+    #     fTrue = np.exp(self.mu[0] + 0.5*self.sigma[0]*self.sigma[0])
+    #     # call prices from given values of mu, sigma and weights
+    #     res_call = \
+    #         op.price_under_mixture(
+    #             self.K,
+    #             self.rf,
+    #             np.array([self.mu,]),
+    #             np.array([self.sigma,]),
+    #             np.array([0.3, 0.7]))
+    #     print(self.sigma)
+    #     res = op.estimate_rnd(res_call, fTrue, self.K, self.rf, is_iv = False,
+    #         W = None)
+    #
+    #     assert_array_almost_equal(
+    #         res, np.array([self.mu[0], self.sigma[0]]), decimal = 2)
+
+class TestOptimizationProblem(unittest.TestCase):
+    """
+    """
+    def setUp(self):
+        self.K = np.arange(85,95,2)
+        self.mu = np.random.random(2)*5
         self.sigma = np.random.random(2)*2
-        fTrue = np.exp(self.mu[0] + 0.5*self.sigma[0]*self.sigma[0])
+        self.wght = [0.3, 0.7]
+        fTrue = np.exp(self.mu + 0.5*self.sigma*self.sigma)
+
         # call prices from given values of mu, sigma and weights
         res_call = \
             op.price_under_mixture(
                 self.K,
                 self.rf,
-                np.array([self.mu[0],]),
-                np.array([self.sigma[0],]),
-                np.array([1,]))
+                np.array([self.mu]),
+                np.array([self.sigma]),
+                self.wght)
 
-        res = op.estimate_rnd(res_call, fTrue, self.K, self.rf, self.tau,
-            is_iv = False, W = None)
+        res = op.estimate_rnd(res_call, fTrue, self.K, self.rf, is_iv = False,
+            W = None)
 
+        assert_array_almost_equal(res[0], self.wght, decimal = 2)
         assert_array_almost_equal(
-            res, np.array([self.mu[0], self.sigma[0]]))
-
-
-        # # optimize!
-        # res = \
-        #     op.estimate_rnd(res_call, self.K, self.rf)
-        #
-        # # assert
-        # assert_array_almost_equal(self.mu, res.mu, places = 2)
-        # assert_array_almost_equal(self.sigma, res.sigma, places = 2)
-
+            res[1],
+            np.concatenate((self.mu, self.sigma)), decimal = 2)
 
 if __name__ == "__main__":
     unittest.main()

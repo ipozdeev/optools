@@ -4,7 +4,7 @@ from scipy.special import erf
 from scipy.stats import norm
 from scipy.optimize import fsolve, minimize, fmin
 
-def estimate_rnd(cTrue, fTrue, K, rf, tau, is_iv, W, **kwargs):
+def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
     """
     everything is per period!
     TODO: THIS FUNCTION IS NOW HALF-WAY DONE
@@ -16,20 +16,67 @@ def estimate_rnd(cTrue, fTrue, K, rf, tau, is_iv, W, **kwargs):
     #
     # # upper bound
 
+    # if cTrue is not IV, convert it to IV
     if not is_iv:
-        cTrue = bs_iv(cTrue, fTrue, K, rf, tau)
+        cTrue = bs_iv(cTrue, fTrue, K, rf, tau = 1)
 
-    # initial values for mu and sigma
-    par0 = np.array([np.log(fTrue), np.median(cTrue)], dtype = float)
+    # 1) using one log-normal, come up with initial guess
+    # some really simple starting values
+    proto_x = np.array([np.log(fTrue), np.median(cTrue)], dtype = float)
 
-    # objective function
+    # objective function is mixture of log-normals with 1 component
+    wght = np.array([1,])
     obj_fun = lambda x: \
-        objective_for_rnd(x, np.array([1,]), K, rf, cTrue, fTrue, True, W)
+        objective_for_rnd(x, wght, K, rf, cTrue, fTrue, True, W)
 
-    # optimization problem
-    clever_guess = minimize(obj_fun, par0, method = "Powell", **kwargs)
+    # optimization problem: use Powell's method, otherwise does not converge
+    first_guess = minimize(obj_fun, proto_x, method = "SLSQP",
+        bounds = [(0,proto_x[0]*2), (0,proto_x[1]*2)])
 
-    return(clever_guess.x)
+    # starting value for optimization
+    x0 = first_guess.x
+
+    # switch to 2
+    x0 = [x0[0]*np.array([1.05, 1/1.05]), x0[1]*np.array([1, 1])]
+
+    # constraints of the form Ax >= 0
+    A = np.hstack((
+        np.zeros((2,2)), np.array([[-1, 4/3], [4/3, -1]])
+        ))
+    con_fun = lambda x: A.dot(x)  # returns 1D numpy.array
+    con = {"type": "ineq", "fun": con_fun}
+
+    # bounds
+    bounds = [(np.log(fTrue*0.9), np.log(fTrue*1.1))]*2 +\
+        [(0, proto_x[1])]*2
+
+    # 2) using this initial guess, cook up a more sophisticated problem
+    # space for parameters and loss function value
+    xs = {}
+    loss = {}
+    for p in range(1,48,2):
+        # two probabilities
+        wght = np.array([(p)/100, 1-(p)/100])
+
+        # objective
+        obj_fun = lambda x: \
+            objective_for_rnd(x, wght, K, rf, cTrue, fTrue, True, W)
+
+        # optimize
+        second_guess = minimize(obj_fun, x0, method = "SLSQP",
+            bounds = bounds, constraints = con, **kwargs)
+
+        # store parameters, value
+        xs.update({p : second_guess.x})
+        loss.update({second_guess.fun : p})
+
+    # find minimum of losses
+    p = loss[min(loss.keys())]
+
+    # and parameters of interest
+    x = xs[p]
+
+    return((np.array([p, 1-p]),x))
 
 def objective_for_rnd(par, wght, K, rf, cTrue, fTrue, is_iv, W = None):
     """Compute objective function for minimization problem in RND estimation.
@@ -62,6 +109,7 @@ def objective_for_rnd(par, wght, K, rf, cTrue, fTrue, is_iv, W = None):
     """
     # number of components
     N = len(wght)
+
     # decompose par into mu and sigma
     mu = par[:N]
     sigma = par[N:]
