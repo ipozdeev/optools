@@ -4,7 +4,7 @@ from scipy.special import erf
 from scipy.stats import norm
 from scipy.optimize import fsolve, minimize, fmin
 
-def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
+def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     """
     everything is per period!
     TODO: THIS FUNCTION IS NOW HALF-WAY DONE
@@ -16,18 +16,18 @@ def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
     #
     # # upper bound
 
-    # if cTrue is not IV, convert it to IV
+    # if c_true is not IV, convert it to IV
     if not is_iv:
-        cTrue = bs_iv(cTrue, fTrue, K, rf, tau = 1)
+        c_true = bs_iv(c_true, f_true, K, rf, tau = 1)
 
     # 1) using one log-normal, come up with initial guess
     # some really simple starting values
-    proto_x = np.array([np.log(fTrue), np.median(cTrue)], dtype = float)
+    proto_x = np.array([np.log(f_true), np.median(c_true)], dtype = float)
 
     # objective function is mixture of log-normals with 1 component
     wght = np.array([1,])
     obj_fun = lambda x: \
-        objective_for_rnd(x, wght, K, rf, cTrue, fTrue, True, W)
+        objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
 
     # optimization problem: use Powell's method, otherwise does not converge
     first_guess = minimize(obj_fun, proto_x, method = "SLSQP",
@@ -35,7 +35,7 @@ def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
 
     # starting value for optimization
     x0 = first_guess.x
-
+    print(x0)
     # switch to 2
     x0 = [x0[0]*np.array([1.05, 1/1.05]), x0[1]*np.array([1, 1])]
 
@@ -47,7 +47,7 @@ def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
     # con = {"type": "ineq", "fun": con_fun}
 
     # # bounds
-    # bounds = [(np.log(fTrue*0.9), np.log(fTrue*1.1))]*2 +\
+    # bounds = [(np.log(f_true*0.9), np.log(f_true*1.1))]*2 +\
     #     [(0, proto_x[1])]*2
 
     # 2) using this initial guess, cook up a more sophisticated problem
@@ -60,7 +60,7 @@ def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
 
         # objective
         obj_fun = lambda x: \
-            objective_for_rnd(x, wght, K, rf, cTrue, fTrue, True, W)
+            objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
 
         # optimize
         second_guess = minimize(obj_fun, x0, method = "SLSQP", **kwargs)
@@ -77,7 +77,7 @@ def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
 
     return((np.array([best_p, 1-best_p]),x))
 
-def objective_for_rnd(par, wght, K, rf, cTrue, fTrue, is_iv, W = None):
+def objective_for_rnd(par, wght, K, rf, c_true, f_true, is_iv, W = None):
     """Compute objective function for minimization problem in RND estimation.
 
     Objective function is loss function of errors between prices (IVs) of options priced under mixture of normals vs. true provided pricse (IVs).
@@ -92,12 +92,12 @@ def objective_for_rnd(par, wght, K, rf, cTrue, fTrue, is_iv, W = None):
         (M,) array of strike prices
     rf: float
         risk-free rate, per period (in frac of 1)
-    cTrue: numpy.array
+    c_true: numpy.array
         (M,) array of real-world option prices (IVs)
-    fTrue: float
+    f_true: float
         real-world price of forward contract on underlying
     is_iv: boolean
-        True if `cTrue` are option IVs rather than prices
+        True if `c_true` are option IVs rather than prices
     W: numpy.ndarray_like
         weights to components of loss function
 
@@ -114,34 +114,34 @@ def objective_for_rnd(par, wght, K, rf, cTrue, fTrue, is_iv, W = None):
     sigma = par[N:]
 
     # fitted values
-    cHat = price_under_mixture(K, rf, mu, sigma, wght)
-    fHat = np.dot(wght, np.exp(mu + 0.5*sigma*sigma))
+    c_hat = price_under_mixture(K, rf, mu, sigma, wght)
+    f_hat = np.dot(wght, np.exp(mu + 0.5*sigma*sigma))
 
     # if implied_vol, transform to iv and log-prices
     if is_iv:
         # tau = 1 to avoid rescaling; make sure rf is per period!
-        cHat = bs_iv(cHat, fHat, K, rf, tau = 1)
-        fHat = np.log(fHat); fTrue = np.log(fTrue)
+        c_hat = bs_iv(c_hat, f_hat, K, rf, tau = 1)
+        f_hat = np.log(f_hat); f_true = np.log(f_true)
 
     # pack into objective
-    res = loss_fun(cTrue, cHat, fTrue, fHat, W)
+    res = loss_fun(c_true, c_hat, f_true, f_hat, W)
 
     return res
 
-def loss_fun(cTrue, cHat, fTrue, fHat, W = None):
+def loss_fun(c_true, c_hat, f_true, f_hat, W = None):
     """Compute value of loss function.
 
     Quadratic loss with weights defined in `W`. Weight of forward pricing error is exactly 1, so rescale `W` accordingly.
 
     Parameters
     ----------
-    cTrue: numpy.array
+    c_true: numpy.array
         (M,) array of real-world option prices (IVs)
-    cHat: numpy.array
+    c_hat: numpy.array
         (M,) array of fitted option prices (IVs)
-    fTrue: float
+    f_true: float
         real-world price of forward contract on underlying
-    fHat: float
+    f_hat: float
         fitted price of forward contract on underlying
     W: numpy.ndarray_like
         weights to components of loss function
@@ -153,13 +153,13 @@ def loss_fun(cTrue, cHat, fTrue, fHat, W = None):
     """
     # if no weighting matrix provided, use equal weighting
     if W is None:
-        W = np.eye(len(cHat))
+        W = np.eye(len(c_hat))
 
     # deviations from options prices (ivs)
-    cDev = cTrue - cHat
+    cDev = c_true - c_hat
 
     # deviations from forward price (log-price)
-    fDev = fTrue - fHat
+    fDev = f_true - f_hat
 
     # loss: quadratic form of deviations with weights in W
     loss = 1e04*(np.dot(cDev, np.dot(W, cDev)) + fDev*fDev)
@@ -210,14 +210,14 @@ def bs_iv(c, f, K, rf, tau, **kwargs):
 
     return res
 
-def bs_iv_objective(cHat, f, K, rf, tau, sigma):
-    """Compute discrepancy between calculated option price and provided `cHat`.
+def bs_iv_objective(c_hat, f, K, rf, tau, sigma):
+    """Compute discrepancy between calculated option price and provided `c_hat`.
 
     Parameters
     ----------
     same as in
     """
-    c = bs_price(f, K, rf, tau, sigma) - cHat
+    c = bs_price(f, K, rf, tau, sigma) - c_hat
 
     return c
 
