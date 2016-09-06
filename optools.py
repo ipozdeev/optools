@@ -39,16 +39,16 @@ def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
     # switch to 2
     x0 = [x0[0]*np.array([1.05, 1/1.05]), x0[1]*np.array([1, 1])]
 
-    # constraints of the form Ax >= 0
-    A = np.hstack((
-        np.zeros((2,2)), np.array([[-1, 4/3], [4/3, -1]])
-        ))
-    con_fun = lambda x: A.dot(x)  # returns 1D numpy.array
-    con = {"type": "ineq", "fun": con_fun}
+    # # constraints of the form Ax >= 0
+    # A = np.hstack((
+    #     np.zeros((2,2)), np.array([[-1, 4/3], [4/3, -1]])
+    #     ))
+    # con_fun = lambda x: A.dot(x)  # returns 1D numpy.array
+    # con = {"type": "ineq", "fun": con_fun}
 
-    # bounds
-    bounds = [(np.log(fTrue*0.9), np.log(fTrue*1.1))]*2 +\
-        [(0, proto_x[1])]*2
+    # # bounds
+    # bounds = [(np.log(fTrue*0.9), np.log(fTrue*1.1))]*2 +\
+    #     [(0, proto_x[1])]*2
 
     # 2) using this initial guess, cook up a more sophisticated problem
     # space for parameters and loss function value
@@ -56,27 +56,26 @@ def estimate_rnd(cTrue, fTrue, K, rf, is_iv, W, **kwargs):
     loss = {}
     for p in range(1,48,2):
         # two probabilities
-        wght = np.array([(p)/100, 1-(p)/100])
+        wght = np.array([p/100, 1-p/100])
 
         # objective
         obj_fun = lambda x: \
             objective_for_rnd(x, wght, K, rf, cTrue, fTrue, True, W)
 
         # optimize
-        second_guess = minimize(obj_fun, x0, method = "SLSQP",
-            bounds = bounds, constraints = con, **kwargs)
+        second_guess = minimize(obj_fun, x0, method = "SLSQP", **kwargs)
 
         # store parameters, value
-        xs.update({p : second_guess.x})
-        loss.update({second_guess.fun : p})
+        xs.update({p/100 : second_guess.x})
+        loss.update({second_guess.fun : p/100})
 
     # find minimum of losses
-    p = loss[min(loss.keys())]
+    best_p = loss[min(loss.keys())]
 
     # and parameters of interest
-    x = xs[p]
+    x = xs[best_p]
 
-    return((np.array([p, 1-p]),x))
+    return((np.array([best_p, 1-best_p]),x))
 
 def objective_for_rnd(par, wght, K, rf, cTrue, fTrue, is_iv, W = None):
     """Compute objective function for minimization problem in RND estimation.
@@ -246,13 +245,16 @@ def price_under_mixture(K, rf, mu, sigma, wght):
     p: numpy.array
         of put option prices
     """
+    N = len(K)
+    M = len(mu)
+
     # tile with K a matrix with rows for distributional components
-    K = np.array([K,]*len(mu))
+    K = np.array([K,]*M)
 
     # tile with mu and sigma matrices with columns for strikes
-    mu = np.array([mu,]*len(K)).transpose()
+    mu = np.array([mu,]*N).transpose()
     # %timeit sigma = np.tile(sigma[np.newaxis].T, (1, len(K)))
-    sigma = np.array([sigma,]*len(K)).transpose()
+    sigma = np.array([sigma,]*N).transpose()
 
     # calculate forward price based on distributional assumptions
     f = np.exp(mu + 0.5*sigma*sigma)
