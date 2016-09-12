@@ -145,5 +145,20 @@ class TestOptimizationProblem(unittest.TestCase):
             res[1],
             np.concatenate((self.mu, self.sigma)), decimal = 1)
 
+def TestRealStuff(unittest.TestCase):
+    """
+    """
+    def setUp:
+        """
+        """
+        data = pd.read_csv("c:/Users/pozdeev/Desktop/piece_opt_data.txt", header=0, index_col=0)
+        iv_quote = data.ix[0,:5].values/100/12  # annualize?
+        S = data["S"].values[0]
+        f = S+data["F"].values[0]/10000
+        rf = data["rf"].values[0]/100/4  # quarterly
+        y = data["y"].values[0]/100/4  # quarterly
+
+    def test
+
 if __name__ == "__main__":
     unittest.main()

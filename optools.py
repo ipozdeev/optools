@@ -29,13 +29,13 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     obj_fun = lambda x: \
         objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
 
-    # optimization problem: use Powell's method, otherwise does not converge
+    # optimization problem
     first_guess = minimize(obj_fun, proto_x, method = "SLSQP",
         bounds = [(0,proto_x[0]*2), (0,proto_x[1]*2)])
 
     # starting value for optimization
     x0 = first_guess.x
-    print(x0)
+
     # switch to 2
     x0 = [x0[0]*np.array([1.05, 1/1.05]), x0[1]*np.array([1, 1])]
 
@@ -279,6 +279,13 @@ def bs_price(f, K, rf, tau, sigma):
 
     # return
     return res
+
+def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
+    """Retrieves strike prices given deltas and IV
+    """
+    phi = is_call*2-1.0
+    theta_plus = (rf-y)/sigma+sigma/2
+    K = X*np.exp(-phi*norm.ppf(phi*delta*np.exp(y*tau))*sigma*np.sqrt(tau) + sigma*theta_plus*tau)
 
 # def bs_greeks(x = None, f = None, K, rf, T, t, sigma, y, is_call):
 #     """
