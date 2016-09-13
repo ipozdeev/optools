@@ -280,12 +280,39 @@ def bs_price(f, K, rf, tau, sigma):
     # return
     return res
 
+def get_wings(r25, r10, b25, b10, atm, y, tau):
+    """Finds no-arbitrage quotes of single options from quotes of contracts.
+
+    Following Malz (2014), oen can recover prices (in terms of implied vol) of the so-called wing options, or individual options entering the risk-reversals and strangles.
+    """
+    # slightly different delta of atm option
+    atm_delta = np.exp(-y*tau)*fast_norm_cdf(0.5*atm*np.sqrt(tau))
+
+    # deltas
+    deltas = np.array([0.1, 0.25, atm_delta, 0.75, 0.9])
+
+    #
+    ivs = np.array([
+        atm + b10 + 0.5*r10,
+        atm + b25 + 0.5*r25,
+        atm,
+        atm + b25 - 0.5*r25,
+        atm + b10 - 0.5*r10
+    ])
+
+    return(deltas, ivs)
+
 def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
     """Retrieves strike prices given deltas and IV
     """
+    # +1 for calls, -1 for puts
     phi = is_call*2-1.0
+
     theta_plus = (rf-y)/sigma+sigma/2
+
     K = X*np.exp(-phi*norm.ppf(phi*delta*np.exp(y*tau))*sigma*np.sqrt(tau) + sigma*theta_plus*tau)
+
+    return(K)
 
 # def bs_greeks(x = None, f = None, K, rf, T, t, sigma, y, is_call):
 #     """
