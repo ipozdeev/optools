@@ -7,7 +7,7 @@ from scipy.optimize import fsolve, minimize, fmin
 def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     """
     everything is per period!
-    TODO: THIS FUNCTION IS NOW HALF-WAY DONE
+
     """
     # # weight by vegas
     # vega = 1/(vega**vega)
@@ -283,7 +283,25 @@ def bs_price(f, K, rf, tau, sigma):
 def get_wings(r25, r10, b25, b10, atm, y, tau):
     """Finds no-arbitrage quotes of single options from quotes of contracts.
 
-    Following Malz (2014), oen can recover prices (in terms of implied vol) of the so-called wing options, or individual options entering the risk-reversals and strangles.
+    Following Malz (2014), one can recover prices (in terms of implied vol) of the so-called wing options, or individual options entering the risk reversals and strangles.
+
+    Parameters
+    ----------
+    r25: numpy.array
+        iv of 25-delta risk reversals
+    atm: numpy.array
+        iv of ATMF
+    y: float
+        dividend yield, in fractions of 1
+    tau: float
+        time to maturity
+
+    Return
+    ------
+    deltas: numpy.array
+        of deltas (delta of ATM is re-calculated)
+    ivs: numpy.array
+        of implied volatilities of wing options
     """
     # slightly different delta of atm option
     atm_delta = np.exp(-y*tau)*fast_norm_cdf(0.5*atm*np.sqrt(tau))
@@ -303,14 +321,38 @@ def get_wings(r25, r10, b25, b10, atm, y, tau):
     return(deltas, ivs)
 
 def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
-    """Retrieves strike prices given deltas and IV
+    """Retrieves strike prices given deltas and IV.
+
+    Parameters
+    ----------
+    delta: numpy.array
+        of option deltas
+    X: float
+        underlying price
+    rf: float
+        risk-free rate, in fractions of 1, annualized
+    y: float
+        dividend yield, in fractions of 1, annualized
+    tau: float
+        time to maturity, in years
+    sigma: numpy.array
+        implied vol
+    is_call: boolean
+        whether options are call options
+
+    Return
+    ------
+    K: numpy.array
+        of strike prices
     """
     # +1 for calls, -1 for puts
     phi = is_call*2-1.0
 
     theta_plus = (rf-y)/sigma+sigma/2
 
-    K = X*np.exp(-phi*norm.ppf(phi*delta*np.exp(y*tau))*sigma*np.sqrt(tau) + sigma*theta_plus*tau)
+    # eq. (1.44) in Wystup
+    K = X*np.exp(-phi*norm.ppf(phi*delta*np.exp(y*tau))*sigma*np.sqrt(tau) + \
+        sigma*theta_plus*tau)
 
     return(K)
 
@@ -332,17 +374,59 @@ def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
 #     delta = phi*np.exp(-y*tau)*fast_norm_cdf(phi*dplus)
 #     gamma = no.exp(-y*tau)*norm.pdf(dplus)/(x*sigma*np.sqrt(tau))
 
-# def bs_vega(x = None, f = None, K, rf = None, y = None, tau, sigma,
-#     dplus = None):
-#     """
-#     """
-#     if dplus is None:
-#         dplus = (np.log(f/K) + sigma*sigma/2*tau)/(sigma*np.sqrt(tau)))
-#     vega = np.diag(f*np.exp(-rf*tau)*np.sqrt(tau)*norm.pdf(dplus)
+def bs_vega(f, K, rf, y, tau, sigma):
+    """
+    """
+    dplus = (np.log(f/K) + sigma*sigma/2*tau)/(sigma*np.sqrt(tau))
+    vega = f*np.exp(-rf*tau)*np.sqrt(tau)*norm.pdf(dplus)
 
+    return(vega)
 
 def fast_norm_cdf(x):
     """
     Using error function from scipy.special (o(1) faster)
     """
     return(1/2*(1 + erf(x/np.sqrt(2))))
+
+class lognormal_mixture():
+    """ Guess what.
+
+    """
+    def __init__(self, mu, sigma, wght):
+        """
+        """
+        self.mu = mu
+        self.sigma = sigma
+        self.wght = wght
+
+    def pdf(self, x):
+        """ PDF at point x
+
+        Parameters
+        ----------
+        x: numpy.array
+            of points
+
+        Return
+        ------
+        p: numpy.array
+            of probability densities
+
+        """
+        # dimensions
+        M = len(self.wght)
+        N = len(x)
+
+        # broadcast
+        mu = np.array([self.mu,]*N).transpose()
+        sigma = np.array([self.sigma,]*N).transpose()
+        x = np.array([x,]*M)
+
+        # densities
+        arg = (np.log(x) - mu)/sigma
+        p = 1/(x*sigma*np.sqrt(2*np.pi))*np.exp(-arg*arg/2)
+
+        # weighted average
+        p = self.wght.dot(p)
+
+        return(p)
