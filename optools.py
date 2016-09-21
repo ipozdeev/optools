@@ -390,7 +390,12 @@ def fast_norm_cdf(x):
 
 class lognormal_mixture():
     """ Guess what.
-
+    Parameters
+    ----------
+    mu: float
+        mean
+    sigma: float
+        standard deviation
     """
     def __init__(self, mu, sigma, wght):
         """
@@ -413,6 +418,11 @@ class lognormal_mixture():
             of probability densities
 
         """
+        flag = False
+        if type(x) in [int, float]:
+            flag = True
+            x = np.array([x,])
+
         # dimensions
         M = len(self.wght)
         N = len(x)
@@ -429,4 +439,27 @@ class lognormal_mixture():
         # weighted average
         p = self.wght.dot(p)
 
-        return(p)
+        return(p[0] if flag else p)
+
+    def cdf(self, x):
+        """ CDF
+        """
+        flag = False
+        if not (type(x) is np.array):
+            flag = True
+            x = np.array([x,])
+
+        # dimensions
+        M = len(self.wght)
+        N = len(x)
+
+        # broadcast
+        mu = np.array([self.mu,]*N).transpose()
+        sigma = np.array([self.sigma,]*N).transpose()
+        x = np.array([x,]*M)
+
+        q = 0.5*(1+erf((np.log(x)-mu)/(np.sqrt(2)*sigma)))
+
+        q = self.wght.dot(q)
+
+        return(q[0] if flag else q)
