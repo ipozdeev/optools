@@ -1,4 +1,5 @@
 #
+import pandas as pd
 import numpy as np
 from scipy.special import erf
 from scipy.stats import norm
@@ -463,3 +464,80 @@ class lognormal_mixture():
         q = self.wght.dot(q)
 
         return(q[0] if flag else q)
+
+def estimation_wrapper(data, constraints):
+    """
+    """
+    x = np.arange(0.8, 1.5, 0.005)
+    ps = pd.DataFrame(
+        data=np.empty(shape=(len(data), len(x))),
+        index=data.index,
+        columns=x)
+
+    # estimate in a loop
+    for idx, row in data.iterrows():
+
+        # fetch wings
+        deltas, ivs = get_wings(
+            row["rr25d"],
+            row["rr10d"],
+            row["bf25d"],
+            row["bf10d"],
+            row["atm"],
+            row["eur"],
+            1)
+
+        # to strikes
+        K = strike_from_delta(
+            deltas,
+            row["s"],
+            row["chf"],
+            row["eur"],
+            1,
+            ivs,
+            True)
+
+        # weighting matrix: inverse squared vegas
+        W = bs_vega(
+            row["f"],
+            K,
+            row["chf"],
+            row["eur"],
+            1,
+            ivs)
+        W = np.diag(1/(W*W))
+
+        # estimate rnd!
+        res = estimate_rnd(
+            ivs,
+            row["f"],
+            K,
+            row["chf"],
+            True,
+            W,
+            constraints=constraints)
+
+        # density
+        ln_mix = lognormal_mixture(res[1][:2], res[1][3:], res[0])
+        p = ln_mix.pdf(x)
+
+        # store
+        ps.loc[idx,:] = p
+
+    return(ps)
+
+if __name__ == "__main__":
+    from import_data import data
+    data = data.ix[1000:1004,:]
+
+    # constraints
+    C = np.array([
+        [0, 0],
+        [0, 0],
+        [-1, 1],
+        [4/3, -3/4]])
+    constraints = {
+        "type" : "ineq",
+        "fun" : lambda x: x.dot(C)}
+
+    ps = estimation_wrapper(data, constraints)

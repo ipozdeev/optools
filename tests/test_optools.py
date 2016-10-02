@@ -264,5 +264,27 @@ class TestLognormalMixture(unittest.TestCase):
     #     plt.plot(x,p)
     #     plt.show()
 
+    def test_big_deal_2(self):
+        """
+        """
+        from optools.import_data import data
+
+        # constraints
+        C = np.array([
+            [0, 0],
+            [0, 0],
+            [-1, 1],
+            [4/3, -3/4]])
+        constraints = {
+            "type" : "ineq",
+            "fun" : lambda x: x.dot(C)}
+
+        ps = op.estimation_wrapper(data, constraints)
+
+        ps.to_csv("c:/users/hsg-spezial/google drive" + \
+            "/personal/research_proposal/option_implied_betas/est_res/" + \
+            "eurchf_11_16_d.csv"
+            )
+
 if __name__ == "__main__":
     unittest.main()
