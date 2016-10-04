@@ -6,17 +6,11 @@ from scipy.stats import norm
 from scipy.optimize import fsolve, minimize, fmin
 
 def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
-    """
-    everything is per period!
+    """ Fit parameters of mixture of two log-normals to market data.
+
+    Everything is per period.
 
     """
-    # # weight by vegas
-    # vega = 1/(vega**vega)
-    # vega = vega/np.max(vega)
-    # W = diag(vega)
-    #
-    # # upper bound
-
     # if c_true is not IV, convert it to IV
     if not is_iv:
         c_true = bs_iv(c_true, f_true, K, rf, tau = 1)
@@ -25,7 +19,7 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     # some really simple starting values
     proto_x = np.array([np.log(f_true), np.median(c_true)], dtype = float)
 
-    # objective function is mixture of log-normals with 1 component
+    # objective function now is mixture of log-normals with 1 component
     wght = np.array([1,])
     obj_fun = lambda x: \
         objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
@@ -40,22 +34,15 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     # switch to 2
     x0 = [x0[0]*np.array([1.05, 1/1.05]), x0[1]*np.array([1, 1])]
 
-    # # constraints of the form Ax >= 0
-    # A = np.hstack((
-    #     np.zeros((2,2)), np.array([[-1, 4/3], [4/3, -1]])
-    #     ))
-    # con_fun = lambda x: A.dot(x)  # returns 1D numpy.array
-    # con = {"type": "ineq", "fun": con_fun}
-
-    # # bounds
-    # bounds = [(np.log(f_true*0.9), np.log(f_true*1.1))]*2 +\
-    #     [(0, proto_x[1])]*2
+    # bounds
+    bounds = [(np.log(f_true*0.9), np.log(f_true/0.9))]*2 +\
+        [(0, proto_x[1]*3)]*2
 
     # 2) using this initial guess, cook up a more sophisticated problem
     # space for parameters and loss function value
     xs = {}
     loss = {}
-    for p in range(1,48,2):
+    for p in range(1,46,2):
         # two probabilities
         wght = np.array([p/100, 1-p/100])
 
@@ -64,7 +51,8 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
             objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
 
         # optimize
-        second_guess = minimize(obj_fun, x0, method = "SLSQP", **kwargs)
+        second_guess = minimize(obj_fun, x0,
+            method = "SLSQP", bounds = bounds, **kwargs)
 
         # store parameters, value
         xs.update({p/100 : second_guess.x})
@@ -286,6 +274,8 @@ def get_wings(r25, r10, b25, b10, atm, y, tau):
 
     Following Malz (2014), one can recover prices (in terms of implied vol) of the so-called wing options, or individual options entering the risk reversals and strangles.
 
+    Everything is annualized.
+
     Parameters
     ----------
     r25: numpy.array
@@ -324,6 +314,8 @@ def get_wings(r25, r10, b25, b10, atm, y, tau):
 def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
     """Retrieves strike prices given deltas and IV.
 
+    Everything relevant is annualized.
+
     Parameters
     ----------
     delta: numpy.array
@@ -331,9 +323,9 @@ def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
     X: float
         underlying price
     rf: float
-        risk-free rate, in fractions of 1, annualized
+        risk-free rate, in fractions of 1
     y: float
-        dividend yield, in fractions of 1, annualized
+        dividend yield, in fractions of 1
     tau: float
         time to maturity, in years
     sigma: numpy.array
@@ -465,14 +457,35 @@ class lognormal_mixture():
 
         return(q[0] if flag else q)
 
-def estimation_wrapper(data, constraints):
+def estimation_wrapper(data, tau, constraints, perc=None):
+    """ Loop over rows in `data` to estimate RND of the underlying.
+
+    Everything is annualized
+
+    Parameters
+    ----------
+    data: pandas.DataFrame
+        with rows for 5 option contracts, spot price, forward price and 2 risk-free rates
+    tau: float
+        maturity of options, in frac of year
+    constraints: dict
+        of constraints as in scipy.optimize.minimize
+    perc: numpy.array-like
+        percentiles at which to calculate risk-neutral pdf
+
+    Returns
+    -------
+    ps: pandas.DataFrame
+        of percentiles of estimated pdf
+
     """
-    """
-    x = np.arange(0.8, 1.5, 0.005)
+    if perc is None:
+        perc = np.arange(0.8, 1.5, 0.005)
+
     ps = pd.DataFrame(
-        data=np.empty(shape=(len(data), len(x))),
+        data=np.empty(shape=(len(data), len(perc))),
         index=data.index,
-        columns=x)
+        columns=perc)
 
     # estimate in a loop
     for idx, row in data.iterrows():
@@ -485,7 +498,10 @@ def estimation_wrapper(data, constraints):
             row["bf10d"],
             row["atm"],
             row["eur"],
-            1)
+            tau)
+
+        # # from annual to by-period
+        # ivs = ivs*tau
 
         # to strikes
         K = strike_from_delta(
@@ -493,7 +509,7 @@ def estimation_wrapper(data, constraints):
             row["s"],
             row["chf"],
             row["eur"],
-            1,
+            tau,
             ivs,
             True)
 
@@ -503,23 +519,24 @@ def estimation_wrapper(data, constraints):
             K,
             row["chf"],
             row["eur"],
-            1,
+            tau,
             ivs)
         W = np.diag(1/(W*W))
 
         # estimate rnd!
+        annualize = np.sqrt(tau)
         res = estimate_rnd(
-            ivs,
+            ivs*annualize,
             row["f"],
             K,
-            row["chf"],
+            row["chf"]*annualize,
             True,
             W,
             constraints=constraints)
 
         # density
         ln_mix = lognormal_mixture(res[1][:2], res[1][3:], res[0])
-        p = ln_mix.pdf(x)
+        p = ln_mix.pdf(perc)
 
         # store
         ps.loc[idx,:] = p

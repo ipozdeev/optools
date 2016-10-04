@@ -10,49 +10,48 @@ import matplotlib.pyplot as plt
 
 from optools import optools as op
 
-class TestLognormalMixture(unittest.TestCase):
-    """
-    """
-    def setUp(self):
-        """
-        """
-        self.wght = np.array([0.3, 0.7])
-        self.mu = np.array([1, 1.2])
-        self.sigma = np.array([0.25, 0.1])
-        self.x = np.arange(0.01, 5, 0.01)
-    # def test_pdf(self):
-    #     """
-    #     """
-    #
-    #     ln_mix = op.lognormal_mixture(
-    #         self.mu,
-    #         self.sigma,
-    #         self.wght)
-    #
-    #     p = ln_mix.pdf(self.x)
-    #
-    #     plt.plot(self.x, p)
-    #     plt.show()
-    #
-    #     self.assertAlmostEqual(np.trapz(p, self.x), 1, places = 2)
-
-    def test_cdf(self):
-        """
-        """
-
-        ln_mix = op.lognormal_mixture(
-            self.mu,
-            self.sigma,
-            self.wght)
-
-        p = ln_mix.pdf(self.x)
-        q = ln_mix.cdf(np.array([3., 10.]))
-        q_star = integrate.quad(lambda xx: ln_mix.pdf(xx), 0., 3.)
-        self.assertAlmostEqual(
-            q[0],
-            q_star[0],
-            places=4)
-
+# class TestLognormalMixture(unittest.TestCase):
+#     """
+#     """
+#     def setUp(self):
+#         """
+#         """
+#         self.wght = np.array([0.3, 0.7])
+#         self.mu = np.array([1, 1.2])
+#         self.sigma = np.array([0.25, 0.1])
+#         self.x = np.arange(0.01, 5, 0.01)
+#     def test_pdf(self):
+#         """
+#         """
+#
+#         ln_mix = op.lognormal_mixture(
+#             self.mu,
+#             self.sigma,
+#             self.wght)
+#
+#         p = ln_mix.pdf(self.x)
+#
+#         plt.plot(self.x, p)
+#         plt.show()
+#
+#         self.assertAlmostEqual(np.trapz(p, self.x), 1, places = 2)
+#
+#     def test_cdf(self):
+#         """
+#         """
+#
+#         ln_mix = op.lognormal_mixture(
+#             self.mu,
+#             self.sigma,
+#             self.wght)
+#
+#         p = ln_mix.pdf(self.x)
+#         q = ln_mix.cdf(np.array([3., 10.]))
+#         q_star = integrate.quad(lambda xx: ln_mix.pdf(xx), 0., 3.)
+#         self.assertAlmostEqual(
+#             q[0],
+#             q_star[0],
+#             places=4)
 
 # class TestSimpleFormulas(unittest.TestCase):
 #     """
@@ -160,7 +159,7 @@ class TestLognormalMixture(unittest.TestCase):
 #             res_call, self.f, is_iv = False)
 #
 #         self.assertAlmostEqual(res, 0.0, places = 2)
-#
+
 # class TestOptimizationProblem(unittest.TestCase):
 #     """
 #     """
@@ -191,33 +190,33 @@ class TestLognormalMixture(unittest.TestCase):
 #             res[1],
 #             np.concatenate((self.mu, self.sigma)), decimal = 1)
 
-# class TestRealStuff(unittest.TestCase):
-#     """
-#     """
-#     def setUp(self):
-#         """
-#         """
-#         data = pd.read_csv(
-#             "c:/Users/pozdeev/Desktop/piece_opt_data.txt",
-#             header=0, index_col=0)
-#         iv_quote = data.ix[1,:5].values/100/4  # quarterly?
-#         self.r10 = iv_quote[0]
-#         self.r25 = iv_quote[1]
-#         self.b10 = iv_quote[2]
-#         self.b25 = iv_quote[3]
-#         self.atm = iv_quote[4]
-#
-#         self.S = data["S"].values[1]
-#         self.f = self.S + data["F"].values[1]/10000
-#         self.rf = data["rf"].values[1]/100/4  # quarterly
-#         self.y = data["y"].values[1]/100/4  # quarterly
-#
-#         # self.r25 = 0.18
-#         # self.b25 = 0.15
-#         # self.atm = 4.83
-#         # self.r10 = self.r25
-#         # self.b10 = self.b25
-#         # self.y = 0
+class TestRealStuff(unittest.TestCase):
+    """
+    """
+    # def setUp(self):
+    #     """
+    #     """
+    #     data = pd.read_csv(
+    #         "c:/Users/pozdeev/Desktop/piece_opt_data.txt",
+    #         header=0, index_col=0)
+    #     iv_quote = data.ix[1,:5].values/100/4  # quarterly?
+    #     self.r10 = iv_quote[0]
+    #     self.r25 = iv_quote[1]
+    #     self.b10 = iv_quote[2]
+    #     self.b25 = iv_quote[3]
+    #     self.atm = iv_quote[4]
+    #
+    #     self.S = data["S"].values[1]
+    #     self.f = self.S + data["F"].values[1]/10000
+    #     self.rf = data["rf"].values[1]/100/4  # quarterly
+    #     self.y = data["y"].values[1]/100/4  # quarterly
+    #
+    #     # self.r25 = 0.18
+    #     # self.b25 = 0.15
+    #     # self.atm = 4.83
+    #     # self.r10 = self.r25
+    #     # self.b10 = self.b25
+    #     # self.y = 0
 
     # def test_get_wings(self):
     #     """
@@ -275,16 +274,21 @@ class TestLognormalMixture(unittest.TestCase):
             [0, 0],
             [-1, 1],
             [4/3, -3/4]])
+
+        # constraints
         constraints = {
             "type" : "ineq",
             "fun" : lambda x: x.dot(C)}
 
-        ps = op.estimation_wrapper(data, constraints)
+        perc = np.arange(0.8, 1.5, 0.005)
+        ps = op.estimation_wrapper(data, 1/12, constraints, perc)
 
         ps.to_csv("c:/users/hsg-spezial/google drive" + \
             "/personal/research_proposal/option_implied_betas/est_res/" + \
             "eurchf_11_16_d.csv"
             )
+
+        # self.assertAlmostEqual(np.trapz(ps.ix[0,:], perc), 1, places = 2)
 
 if __name__ == "__main__":
     unittest.main()
