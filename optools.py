@@ -5,10 +5,17 @@ from scipy.special import erf
 from scipy.stats import norm
 from scipy.optimize import fsolve, minimize, fmin
 
+import logging
+logger = logging.getLogger()
+
 def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     """ Fit parameters of mixture of two log-normals to market data.
 
     Everything is per period.
+
+    Returns
+    -------
+    res:
 
     """
     # if c_true is not IV, convert it to IV
@@ -60,11 +67,18 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
 
     # find minimum of losses
     best_p = loss[min(loss.keys())]
+    w = np.array([best_p, 1-best_p])
+
+    # warning if weight is close to 0 or 0.5
+    if (best_p < 0.02) or (best_p > 0.44):
+        logger.warning("Weight of one component is at the boundary: {}".\
+            format(best_p))
+
 
     # and parameters of interest
     x = xs[best_p]
 
-    return((np.array([best_p, 1-best_p]),x))
+    return(w, x)
 
 def objective_for_rnd(par, wght, K, rf, c_true, f_true, is_iv, W = None):
     """Compute objective function for minimization problem in RND estimation.
@@ -393,9 +407,19 @@ class lognormal_mixture():
     def __init__(self, mu, sigma, wght):
         """
         """
+        assert all([len(p) == len(wght) for p in [mu, sigma]])
+
         self.mu = mu
         self.sigma = sigma
         self.wght = wght
+
+    def moments(self):
+        """
+        """
+        Ex = np.exp(self.mu+self.sigma*self.sigma/2).dot(self.wght)
+
+        return((Ex,))
+
 
     def pdf(self, x):
         """ PDF at point x
@@ -412,7 +436,7 @@ class lognormal_mixture():
 
         """
         flag = False
-        if type(x) in [int, float]:
+        if not (type(x) is np.array):
             flag = True
             x = np.array([x,])
 
@@ -427,18 +451,18 @@ class lognormal_mixture():
 
         # densities
         arg = (np.log(x) - mu)/sigma
-        p = 1/(x*sigma*np.sqrt(2*np.pi))*np.exp(-arg*arg/2)
+        d = 1/(x*sigma*np.sqrt(2*np.pi))*np.exp(-arg*arg/2)
 
         # weighted average
-        p = self.wght.dot(p)
+        d = self.wght.dot(d)
 
-        return(p[0] if flag else p)
+        return(d[0] if flag else d)
 
     def cdf(self, x):
         """ CDF
         """
         flag = False
-        if not (type(x) is np.array):
+        if not (type(x) is np.ndarray):
             flag = True
             x = np.array([x,])
 
@@ -451,13 +475,37 @@ class lognormal_mixture():
         sigma = np.array([self.sigma,]*N).transpose()
         x = np.array([x,]*M)
 
-        q = 0.5*(1+erf((np.log(x)-mu)/(np.sqrt(2)*sigma)))
+        p = 0.5*(1+erf((np.log(x)-mu)/(np.sqrt(2)*sigma)))
+        p = self.wght.dot(p)
 
-        q = self.wght.dot(q)
+        return(p[0] if flag else p)
+
+    def quantile(self, p):
+        """ Quantile function of mixture of log-normals
+        """
+        flag = False
+        if not (type(p) is np.ndarray):
+            flag = True
+            p = np.array([p,])
+
+        # find root of CDF(x)=p
+        obj_fun = lambda x: self.cdf(x) - p
+
+        # starting value: exp{quantiles of single normal} TODO: think about it
+        x0 = np.exp(norm.ppf(p,
+            loc=self.mu.dot(self.wght),
+            scale=self.sigma.dot(self.wght)))
+
+        # fprime is pdf
+        fprime = lambda x: np.diag(self.pdf(x))
+
+        # solve
+        q = fsolve(func=obj_fun, x0=x0, fprime=fprime)
 
         return(q[0] if flag else q)
 
-def estimation_wrapper(data, tau, constraints, perc=None):
+
+def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
     """ Loop over rows in `data` to estimate RND of the underlying.
 
     Everything is annualized
@@ -465,30 +513,49 @@ def estimation_wrapper(data, tau, constraints, perc=None):
     Parameters
     ----------
     data: pandas.DataFrame
-        with rows for 5 option contracts, spot price, forward price and 2 risk-free rates
+        with rows for 5 option contracts, spot price, forward price and two
+        risk-free rates
     tau: float
         maturity of options, in frac of year
     constraints: dict
         of constraints as in scipy.optimize.minimize
-    perc: numpy.array-like
-        percentiles at which to calculate risk-neutral pdf
+    domain: numpy.ndarray-like
+        values at which risk-neutral pdf to be calculated
+    perc: numpy.ndarray-like
+        percentiles of risk-neutral pdf to calculate
 
     Returns
     -------
-    ps: pandas.DataFrame
-        of percentiles of estimated pdf
+    dens: pandas.DataFrame
+        of density at points provided in `domain`
+    par: pandas.DataFrame
+        of estimated parameters: [mu', sigma', w']
 
+    TODO: handling bad data rows
     """
+    if domain is None:
+        domain = np.arange(0.8, 1.5, 0.005)
     if perc is None:
-        perc = np.arange(0.8, 1.5, 0.005)
+        perc = np.array([0.1, 0.5, 0.9])
 
-    ps = pd.DataFrame(
+    # allocate space
+    dens = pd.DataFrame(
+        data=np.empty(shape=(len(data), len(domain))),
+        index=data.index,
+        columns=domain)
+    quant = pd.DataFrame(
         data=np.empty(shape=(len(data), len(perc))),
         index=data.index,
         columns=perc)
+    par = pd.DataFrame(
+        data=np.empty(shape=(len(data), 6)),
+        index=data.index,
+        columns=["mu1", "mu2", "sigma1", "sigma2", "w1", "w2"])
 
     # estimate in a loop
     for idx, row in data.iterrows():
+
+        logger.info("doing row %.10s..." % str(idx))
 
         # fetch wings
         deltas, ivs = get_wings(
@@ -534,27 +601,41 @@ def estimation_wrapper(data, tau, constraints, perc=None):
             W,
             constraints=constraints)
 
+        # init lognormal_mixture object
+        ln_mix = lognormal_mixture(res[1][:2], res[1][2:], res[0])
+
         # density
-        ln_mix = lognormal_mixture(res[1][:2], res[1][3:], res[0])
-        p = ln_mix.pdf(perc)
+        p = ln_mix.pdf(domain)
+
+        # issue warning is density integrates to something too far off from 1
+        intg = np.trapz(p, domain)
+        if abs(intg-1) > 1e-05:
+            logger.warning(
+                "Large deviation of density integral from one: {:6.5f}".\
+                format(intg))
+
+        # quantiles
+        q = ln_mix.quantile(perc)
 
         # store
-        ps.loc[idx,:] = p
+        par.loc[idx,:] = np.concatenate([res[1], res[0]])
+        dens.loc[idx,:] = p
+        quant.loc[idx,:] = q
 
-    return(ps)
+    return(dens, par, quant)
 
-if __name__ == "__main__":
-    from import_data import data
-    data = data.ix[1000:1004,:]
-
-    # constraints
-    C = np.array([
-        [0, 0],
-        [0, 0],
-        [-1, 1],
-        [4/3, -3/4]])
-    constraints = {
-        "type" : "ineq",
-        "fun" : lambda x: x.dot(C)}
-
-    ps = estimation_wrapper(data, constraints)
+# if __name__ == "__main__":
+#     from import_data import data
+#     data = data.ix[1000:1004,:]
+#
+#     # constraints
+#     C = np.array([
+#         [0, 0],
+#         [0, 0],
+#         [-1, 1],
+#         [4/3, -3/4]])
+#     constraints = {
+#         "type" : "ineq",
+#         "fun" : lambda x: x.dot(C)}
+#
+#     p = estimation_wrapper(data, constraints)

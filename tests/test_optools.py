@@ -7,8 +7,14 @@ from scipy.special import erf
 import scipy.integrate as integrate
 import timeit
 import matplotlib.pyplot as plt
+import logging
 
 from optools import optools as op
+
+logging.basicConfig(filename="optools_logger.txt", filemode='a',
+    format="%(asctime)s || %(levelname)s:%(message)s", datefmt="%H:%M:%S")
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 # class TestLognormalMixture(unittest.TestCase):
 #     """
@@ -20,6 +26,7 @@ from optools import optools as op
 #         self.mu = np.array([1, 1.2])
 #         self.sigma = np.array([0.25, 0.1])
 #         self.x = np.arange(0.01, 5, 0.01)
+#
 #     def test_pdf(self):
 #         """
 #         """
@@ -31,8 +38,8 @@ from optools import optools as op
 #
 #         p = ln_mix.pdf(self.x)
 #
-#         plt.plot(self.x, p)
-#         plt.show()
+#         # plt.plot(self.x, p)
+#         # plt.show()
 #
 #         self.assertAlmostEqual(np.trapz(p, self.x), 1, places = 2)
 #
@@ -52,7 +59,61 @@ from optools import optools as op
 #             q[0],
 #             q_star[0],
 #             places=4)
-
+#
+# class TestLognormalMixtureWithR(unittest.TestCase):
+#     """
+#     """
+#     def setUp(self):
+#         """
+#         """
+#         self.wght = np.array([0.5, 0.5])
+#         self.mu = np.array([0, 2])
+#         self.sigma = np.array([1, 3])
+#
+#         self.ln_mix = op.lognormal_mixture(
+#             self.mu,
+#             self.sigma,
+#             self.wght)
+#
+#     def test_pdf(self):
+#         """
+#         """
+#         d = self.ln_mix.pdf(1.5)
+#
+#         self.assertAlmostEqual(d, 0.1609746, places = 7)
+#
+#     def test_cdf_1_ln(self):
+#         """
+#         """
+#         ln_mix_1d = op.lognormal_mixture(
+#             self.mu,
+#             self.sigma,
+#             np.array([1, 0]))
+#         p = ln_mix_1d.cdf(2)
+#
+#         self.assertAlmostEqual(p, 0.7558914, places=7)
+#
+#     def test_cdf_2ln(self):
+#         """
+#         """
+#         p = self.ln_mix.cdf(np.array([0.5, 1.5]))
+#
+#         assert_array_almost_equal(p, np.array([0.214389, 0.477482]), decimal=6)
+#
+#     def test_quantile(self):
+#         """
+#         """
+#         q = self.ln_mix.quantile(0.5)
+#
+#         self.assertAlmostEqual(q, 1.648721, places = 6)
+#
+#     def test_quantile_multi(self):
+#         """
+#         """
+#         q = self.ln_mix.quantile(np.array([0.1, 0.9]))
+#
+#         assert_array_almost_equal(q, np.array([0.236147, 92.28633]), decimal=5)
+#
 # class TestSimpleFormulas(unittest.TestCase):
 #     """
 #     """
@@ -159,7 +220,7 @@ from optools import optools as op
 #             res_call, self.f, is_iv = False)
 #
 #         self.assertAlmostEqual(res, 0.0, places = 2)
-
+#
 # class TestOptimizationProblem(unittest.TestCase):
 #     """
 #     """
@@ -217,7 +278,7 @@ class TestRealStuff(unittest.TestCase):
     #     # self.r10 = self.r25
     #     # self.b10 = self.b25
     #     # self.y = 0
-
+    #
     # def test_get_wings(self):
     #     """
     #     """
@@ -236,7 +297,7 @@ class TestRealStuff(unittest.TestCase):
     #         ivs, True)
     #
     #     print(res)
-
+    #
     # def test_big_deal(self):
     #     """
     #     """
@@ -267,8 +328,11 @@ class TestRealStuff(unittest.TestCase):
         """
         """
         from optools.import_data import data
+        usr = "hsg-spezial"
+        path = "c:/users/" + usr + "/google drive/" + \
+            "personal/research_proposal/option_implied_betas/est_res/"
 
-        # constraints
+        # constraints: ratio of sigmas <4/3
         C = np.array([
             [0, 0],
             [0, 0],
@@ -280,15 +344,14 @@ class TestRealStuff(unittest.TestCase):
             "type" : "ineq",
             "fun" : lambda x: x.dot(C)}
 
-        perc = np.arange(0.8, 1.5, 0.005)
-        ps = op.estimation_wrapper(data, 1/12, constraints, perc)
+        domain = np.arange(0.8, 1.5, 0.005)
+        perc = np.array([0.1, 0.5, 0.9])
+        dens, par, perc = op.estimation_wrapper(data,
+            1/12, constraints, domain, perc)
 
-        ps.to_csv("c:/users/hsg-spezial/google drive" + \
-            "/personal/research_proposal/option_implied_betas/est_res/" + \
-            "eurchf_11_16_d.csv"
-            )
-
-        # self.assertAlmostEqual(np.trapz(ps.ix[0,:], perc), 1, places = 2)
+        par.to_csv(path + "eurchf_11_16_d_par.csv")
+        dens.to_csv(path + "eurchf_11_16_d_dens.csv")
+        perc.to_csv(path + "eurchf_11_16_d_perc.csv")
 
 if __name__ == "__main__":
     unittest.main()
