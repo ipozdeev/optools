@@ -49,7 +49,7 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     # space for parameters and loss function value
     xs = {}
     loss = {}
-    for p in range(1,46,2):
+    for p in range(3,48,2):
         # two probabilities
         wght = np.array([p/100, 1-p/100])
 
@@ -70,10 +70,9 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     w = np.array([best_p, 1-best_p])
 
     # warning if weight is close to 0 or 0.5
-    if (best_p < 0.02) or (best_p > 0.44):
+    if (best_p < 0.04) or (best_p > 0.47):
         logger.warning("Weight of one component is at the boundary: {}".\
             format(best_p))
-
 
     # and parameters of interest
     x = xs[best_p]
@@ -109,6 +108,9 @@ def objective_for_rnd(par, wght, K, rf, c_true, f_true, is_iv, W = None):
     res: float
         loss function value
     """
+    if W is None:
+        W = np.diag(np.ones(len(c_true)))
+
     # number of components
     N = len(wght)
 
@@ -229,6 +231,9 @@ def bs_iv_objective(c_hat, f, K, rf, tau, sigma):
 def price_under_mixture(K, rf, mu, sigma, wght):
     """
     Computes the price of a call option under assumption that the underlying follows a mixture of lognormal distributions with parameters specified in `mu` and `sigma` and weights specified in `w`.
+
+    Everything is per period
+
     Parameters
     ----------
     K: numpy.array
@@ -267,6 +272,7 @@ def price_under_mixture(K, rf, mu, sigma, wght):
 
     # result
     res = wght.dot(c)
+
     return res
 
 def bs_price(f, K, rf, tau, sigma):
@@ -288,7 +294,7 @@ def get_wings(r25, r10, b25, b10, atm, y, tau):
 
     Following Malz (2014), one can recover prices (in terms of implied vol) of the so-called wing options, or individual options entering the risk reversals and strangles.
 
-    Everything is annualized.
+    Everything relevant is annualized.
 
     Parameters
     ----------
@@ -591,12 +597,11 @@ def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
         W = np.diag(1/(W*W))
 
         # estimate rnd!
-        annualize = np.sqrt(tau)
         res = estimate_rnd(
-            ivs*annualize,
+            ivs*np.sqrt(tau),
             row["f"],
             K,
-            row["chf"]*annualize,
+            row["chf"]*tau,
             True,
             W,
             constraints=constraints)
