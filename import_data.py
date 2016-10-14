@@ -6,9 +6,9 @@ import datetime as dt
 import matplotlib.pyplot as plt
 
 # import data
-user = "hsg-spezial"
-data_path = "c:/users/"+user+\
-    "/google drive/personal/research_proposal/option_implied_betas/data/"
+usr = "hsg-spezial"
+data_path = "c:/users/"+usr+\
+    "/google drive/personal/option_implied_betas_project/data/"
 
 # read in: contracts
 deriv = pd.read_excel(
@@ -34,28 +34,34 @@ deriv = deriv/100
 # read in: S,F
 sf = pd.read_excel(
     io=data_path+"eurchf_fx_deriv.xlsx",
-    sheetname="SF",
-    skiprows=0,
-    header=0)
+    sheetname="S,F",
+    skiprows=5,
+    header=None)
+
 sf = pd.concat(
-    objs=[pd.DataFrame(data=sf.ix[:,1].values,index=sf.ix[:,0].values),
-        pd.DataFrame(data=sf.ix[:,4].values,index=sf.ix[:,2].values)],
+    objs=[pd.DataFrame(
+        sf.ix[:,p*2+1].values, index=sf.ix[:,p*2].values)
+            for p in range(3)],
     axis=1,
     ignore_index=True)
 
-sf.columns = ["s","f"]
+sf.columns = ["s","f1m","f3m"]
 
 # read in: rf
 rf = pd.read_excel(
     io=data_path+"eurchf_fx_deriv.xlsx",
     sheetname="RF",
-    skiprows=0,
-    header=0)
+    skiprows=5,
+    header=None)
 
-rf_eur = pd.DataFrame(data=rf.ix[:,1].values,index=rf.ix[:,0].values)
-rf_chf = pd.DataFrame(data=rf.ix[:,3].values,index=rf.ix[:,2].values)
-rf = pd.concat([rf_eur.dropna(), rf_chf.dropna()], axis=1, ignore_index=True)
-rf.columns = ["eur", "chf"]
+rf = pd.concat(
+    objs=[pd.DataFrame(
+        rf.ix[:,p*2+1].dropna().values, index=rf.ix[:,p*2].dropna().values)
+            for p in range(4)],
+    axis=1,
+    ignore_index=True)
+
+rf.columns = ["eur1m", "eur3m", "chf1m", "chf3m"]
 rf = rf/100
 
 # merge everything

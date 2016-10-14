@@ -7,6 +7,7 @@ from scipy.optimize import fsolve, minimize, fmin
 
 import logging
 logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     """ Fit parameters of mixture of two log-normals to market data.
@@ -26,6 +27,8 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     # some really simple starting values
     proto_x = np.array([np.log(f_true), np.median(c_true)], dtype = float)
 
+    logger.debug(("Proto-x:\n"+"%.4f "*len(proto_x)+"\n") % tuple(proto_x))
+
     # objective function now is mixture of log-normals with 1 component
     wght = np.array([1,])
     obj_fun = lambda x: \
@@ -34,6 +37,9 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     # optimization problem
     first_guess = minimize(obj_fun, proto_x, method = "SLSQP",
         bounds = [(0,proto_x[0]*2), (0,proto_x[1]*2)])
+
+    logger.debug(("First guess:\n"+"%.2f "*len(first_guess.x)+"\n") %
+        tuple(first_guess.x))
 
     # starting value for optimization
     x0 = first_guess.x
@@ -65,6 +71,10 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
         xs.update({p/100 : second_guess.x})
         loss.update({second_guess.fun : p/100})
 
+    logger.debug(("Losses over w:\n"+"%04d "*len(loss.keys())+"\n") %
+        tuple(range(3,48,2)))
+    logger.debug(("\n"+"%4.3f "*len(loss.keys())+"\n") % tuple(loss.keys()))
+
     # find minimum of losses
     best_p = loss[min(loss.keys())]
     w = np.array([best_p, 1-best_p])
@@ -76,6 +86,9 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
 
     # and parameters of interest
     x = xs[best_p]
+
+    logger.debug("Weight: %.2f\n" % best_p)
+    logger.debug(("Par: "+"%.2f "*len(x)+"\n") % tuple(x))
 
     return(w, x)
 
@@ -95,7 +108,7 @@ def objective_for_rnd(par, wght, K, rf, c_true, f_true, is_iv, W = None):
     rf: float
         risk-free rate, per period (in frac of 1)
     c_true: numpy.array
-        (M,) array of real-world option prices (IVs)
+        (M,) array of real-world option prices (or IVs)
     f_true: float
         real-world price of forward contract on underlying
     is_iv: boolean
@@ -520,7 +533,7 @@ def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
     ----------
     data: pandas.DataFrame
         with rows for 5 option contracts, spot price, forward price and two
-        risk-free rates
+        risk-free rates called rf for domestic and y for foreign
     tau: float
         maturity of options, in frac of year
     constraints: dict
@@ -562,6 +575,7 @@ def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
     for idx, row in data.iterrows():
 
         logger.info("doing row %.10s..." % str(idx))
+        logger.debug(("This row:\n"+"%.4f "*len(row)+"\n") % tuple(row.values))
 
         # fetch wings
         deltas, ivs = get_wings(
@@ -570,38 +584,43 @@ def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
             row["bf25d"],
             row["bf10d"],
             row["atm"],
-            row["eur"],
+            row["y"],
             tau)
 
-        # # from annual to by-period
-        # ivs = ivs*tau
+        logger.debug(("IVs:\n"+"%.2f "*len(ivs)+"\n") % tuple(ivs*100))
+        logger.debug(("Deltas:\n"+"%.2f "*len(deltas)+"\n") % tuple(deltas))
 
         # to strikes
         K = strike_from_delta(
             deltas,
             row["s"],
-            row["chf"],
-            row["eur"],
+            row["rf"],
+            row["y"],
             tau,
             ivs,
             True)
+
+        logger.debug(("K:\n"+"%.2f "*len(K)+"\n") % tuple(K))
 
         # weighting matrix: inverse squared vegas
         W = bs_vega(
             row["f"],
             K,
-            row["chf"],
-            row["eur"],
+            row["rf"],
+            row["y"],
             tau,
             ivs)
         W = np.diag(1/(W*W))
+
+        logger.debug(("Vegas:\n"+"%.2f "*len(np.diag(W))+"\n") %
+            tuple(np.diag(W)))
 
         # estimate rnd!
         res = estimate_rnd(
             ivs*np.sqrt(tau),
             row["f"],
             K,
-            row["chf"]*tau,
+            row["rf"]*tau,
             True,
             W,
             constraints=constraints)
@@ -628,6 +647,7 @@ def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
         quant.loc[idx,:] = q
 
     return(dens, par, quant)
+
 
 # if __name__ == "__main__":
 #     from import_data import data

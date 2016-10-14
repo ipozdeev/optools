@@ -11,13 +11,9 @@ import logging
 
 from optools import optools as op
 
+usr = "hsg-spezial"
 path = "c:/users/" + usr + "/google drive/" + \
     "personal/research_proposal/option_implied_betas/est_res/"
-
-logging.basicConfig(filename=path+"optools_logger.txt", filemode='a',
-    format="%(asctime)s || %(levelname)s:%(message)s", datefmt="%H:%M:%S")
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
 
 # class TestLognormalMixture(unittest.TestCase):
 #     """
@@ -300,61 +296,6 @@ class TestRealStuff(unittest.TestCase):
     #         ivs, True)
     #
     #     print(res)
-    #
-    # def test_big_deal(self):
-    #     """
-    #     """
-    #     # fetch wings
-    #     deltas, ivs = op.get_wings(
-    #         self.r25, self.r10, self.b25, self.b10, self.atm, self.y, 1)
-    #
-    #     # to strikes
-    #     K = op.strike_from_delta(deltas, self.S, self.rf, self.y, 1,
-    #         ivs, True)
-    #
-    #     # weighting matrix: inverse squared vegas
-    #     W = op.bs_vega(self.f, K, self.rf, self.y, 1, ivs)
-    #     W = np.diag(1/(W*W))
-    #
-    #     # estimate rnd!
-    #     res = op.estimate_rnd(ivs, self.f, K, self.rf, True, W)
-    #
-    #     # plot density
-    #     ln_mix = op.lognormal_mixture(res[1][:2], res[1][3:], res[0])
-    #     x = np.arange(0.8, 1.36, 0.005)
-    #     p = ln_mix.pdf(x)
-    #
-    #     plt.plot(x,p)
-    #     plt.show()
-
-    def test_big_deal_2(self):
-        """
-        """
-        from optools.import_data import data
-        usr = "hsg-spezial"
-        path = "c:/users/" + usr + "/google drive/" + \
-            "personal/research_proposal/option_implied_betas/est_res/"
-
-        # constraints: ratio of sigmas <4/3
-        C = np.array([
-            [0, 0],
-            [0, 0],
-            [-1, 4/3],
-            [4/3, -1]])
-
-        # constraints
-        constraints = {
-            "type" : "ineq",
-            "fun" : lambda x: x.dot(C)}
-
-        domain = np.arange(0.8, 1.5, 0.005)
-        perc = np.array([0.1, 0.5, 0.9])
-        dens, par, perc = op.estimation_wrapper(data.ix[1:100,:],
-            1/12, constraints, domain, perc)
-
-        par.to_csv(path + "eurchf_11_16_d_par.csv")
-        dens.to_csv(path + "eurchf_11_16_d_dens.csv")
-        perc.to_csv(path + "eurchf_11_16_d_perc.csv")
 
 if __name__ == "__main__":
     unittest.main()
