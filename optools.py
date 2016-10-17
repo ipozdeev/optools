@@ -3,11 +3,27 @@ import pandas as pd
 import numpy as np
 from scipy.special import erf
 from scipy.stats import norm
-from scipy.optimize import fsolve, minimize, fmin
+from scipy.optimize import fsolve, minimize, fmin, differential_evolution
+import multiprocessing as mproc
+import sys
+# import ipdb
 
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
+
+# constraints: ratio of sigmas <4/3
+C = np.array([
+    [0, 0],
+    [0, 0],
+    [-1, 4/3],
+    [4/3, -1]])
+
+# constraints
+constraints = {
+    "type" : "ineq",
+    "fun" : lambda x: x.dot(C)}
+tau = 1/12
 
 def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     """ Fit parameters of mixture of two log-normals to market data.
@@ -53,44 +69,69 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
 
     # 2) using this initial guess, cook up a more sophisticated problem
     # space for parameters and loss function value
-    xs = {}
-    loss = {}
-    for p in range(3,48,2):
-        # two probabilities
-        wght = np.array([p/100, 1-p/100])
+    # try differential_evolution
+    # temp --------------------------------------------------------------------
+    try:
+        # obj_fun will be function of 5 arguments, so need additional bound
+        # on weight (second weight is [1 - first weight])
+        new_bounds = bounds + [(0.01, 0.49)]
 
-        # objective
-        obj_fun = lambda x: \
-            objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
+        # new objective: function of [mu1,mu2,s1,s2,w1]
+        def new_obj_fun(x):
+            x1 = x[:4]
+            x2 = np.array([x[4], 1-x[4]])
+            return objective_for_rnd(x1, x2, K, rf, c_true, f_true, True, W)
 
-        # optimize
-        second_guess = minimize(obj_fun, x0,
-            method = "SLSQP", bounds = bounds, **kwargs)
+        res = differential_evolution(new_obj_fun, new_bounds)
+        best_p = res.x[-1]
+        w = np.array([best_p, 1-best_p])
+        x = res.x[:4]
+    # end temp ----------------------------------------------------------------
+    except:
+        # handle exception above
+        # err = sys.exc_info()[0]
+        logger.error("differential evolution aborted:\n")
 
-        # store parameters, value
-        xs.update({p/100 : second_guess.x})
-        loss.update({second_guess.fun : p/100})
+        xs = {}
+        loss = {}
+        for p in range(3,48,2):
+            # two probabilities
+            wght = np.array([p/100, 1-p/100])
 
-    logger.debug(("Losses over w:\n"+"%04d "*len(loss.keys())+"\n") %
-        tuple(range(3,48,2)))
-    logger.debug(("\n"+"%4.3f "*len(loss.keys())+"\n") % tuple(loss.keys()))
+            # objective
+            obj_fun = lambda x: \
+                objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
 
-    # find minimum of losses
-    best_p = loss[min(loss.keys())]
-    w = np.array([best_p, 1-best_p])
+            # optimize
+            second_guess = minimize(obj_fun, x0,
+                method = "SLSQP", bounds = bounds, **kwargs)
 
-    # warning if weight is close to 0 or 0.5
-    if (best_p < 0.04) or (best_p > 0.47):
-        logger.warning("Weight of one component is at the boundary: {}".\
-            format(best_p))
+            # store parameters, value
+            xs.update({p/100 : second_guess.x})
+            loss.update({second_guess.fun : p/100})
 
-    # and parameters of interest
-    x = xs[best_p]
+        logger.debug(("Losses over w:\n"+"%04d "*len(loss.keys())+"\n") %
+            tuple(range(3,48,2)))
+        logger.debug(("\n"+"%4.3f "*len(loss.keys())+"\n") %
+            tuple(loss.keys()))
 
+        # find minimum of losses
+        best_p = loss[min(loss.keys())]
+        w = np.array([best_p, 1-best_p])
+
+        # warning if weight is close to 0 or 0.5
+        if (best_p < 0.04) or (best_p > 0.47):
+            logger.warning("Weight of one component is at the boundary: {}".\
+                format(best_p))
+
+        # and parameters of interest
+        x = xs[best_p]
+
+    # end of try/except
     logger.debug("Weight: %.2f\n" % best_p)
     logger.debug(("Par: "+"%.2f "*len(x)+"\n") % tuple(x))
 
-    return(w, x)
+    return(np.concatenate((x, w)))
 
 def objective_for_rnd(par, wght, K, rf, c_true, f_true, is_iv, W = None):
     """Compute objective function for minimization problem in RND estimation.
@@ -101,13 +142,13 @@ def objective_for_rnd(par, wght, K, rf, c_true, f_true, is_iv, W = None):
     ----------
     par: numpy.ndarray
         [[means], [stds]] of individual components, (2,N)
-    wght: numpy.array
+    wght: numpy.ndarray
         (N,) weights of each component (in frac of 1)
-    K: numpy.array
+    K: numpy.ndarray
         (M,) array of strike prices
     rf: float
         risk-free rate, per period (in frac of 1)
-    c_true: numpy.array
+    c_true: numpy.ndarray
         (M,) array of real-world option prices (or IVs)
     f_true: float
         real-world price of forward contract on underlying
@@ -153,9 +194,9 @@ def loss_fun(c_true, c_hat, f_true, f_hat, W = None):
 
     Parameters
     ----------
-    c_true: numpy.array
+    c_true: numpy.ndarray
         (M,) array of real-world option prices (IVs)
-    c_hat: numpy.array
+    c_hat: numpy.ndarray
         (M,) array of fitted option prices (IVs)
     f_true: float
         real-world price of forward contract on underlying
@@ -191,11 +232,11 @@ def bs_iv(c, f, K, rf, tau, **kwargs):
 
     Parameters
     ----------
-    c: numpy.array
+    c: numpy.ndarray
         (M,) array of fitted option prices (IVs)
     f: float
         forward price of underlying
-    K: numpy.array
+    K: numpy.ndarray
         (M,) array of strike prices
     rf: float
         risk-free rate, per period (in frac of 1)
@@ -206,7 +247,7 @@ def bs_iv(c, f, K, rf, tau, **kwargs):
 
     Return
     ------
-    res: numpy.array
+    res: numpy.ndarray
         (M,) array of implied volatilities
     """
     # fprime: derivative of bs_price, or vega
@@ -249,21 +290,21 @@ def price_under_mixture(K, rf, mu, sigma, wght):
 
     Parameters
     ----------
-    K: numpy.array
+    K: numpy.ndarray
         of strike prices
     rf: float
         risk-free rate, in fractions of 1, per period
-    mu: numpy.array
+    mu: numpy.ndarray
         of means of log-normal distributions in the mixture
-    sigma: numpy.array
+    sigma: numpy.ndarray
         of st. deviations of log-normal distributions in the mixture
-    wght: numpy.array
+    wght: numpy.ndarray
         of component weights
     Returns
     -------
-    c: numpy.array
+    c: numpy.ndarray
         of call option prices
-    p: numpy.array
+    p: numpy.ndarray
         of put option prices
     """
     N = len(K)
@@ -311,9 +352,9 @@ def get_wings(r25, r10, b25, b10, atm, y, tau):
 
     Parameters
     ----------
-    r25: numpy.array
+    r25: numpy.ndarray
         iv of 25-delta risk reversals
-    atm: numpy.array
+    atm: numpy.ndarray
         iv of ATMF
     y: float
         dividend yield, in fractions of 1
@@ -322,9 +363,9 @@ def get_wings(r25, r10, b25, b10, atm, y, tau):
 
     Return
     ------
-    deltas: numpy.array
+    deltas: numpy.ndarray
         of deltas (delta of ATM is re-calculated)
-    ivs: numpy.array
+    ivs: numpy.ndarray
         of implied volatilities of wing options
     """
     # slightly different delta of atm option
@@ -345,13 +386,13 @@ def get_wings(r25, r10, b25, b10, atm, y, tau):
     return(deltas, ivs)
 
 def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
-    """Retrieves strike prices given deltas and IV.
+    """ Retrieve strike prices given deltas and IV.
 
     Everything relevant is annualized.
 
     Parameters
     ----------
-    delta: numpy.array
+    delta: numpy.ndarray
         of option deltas
     X: float
         underlying price
@@ -361,14 +402,14 @@ def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
         dividend yield, in fractions of 1
     tau: float
         time to maturity, in years
-    sigma: numpy.array
+    sigma: numpy.ndarray
         implied vol
     is_call: boolean
         whether options are call options
 
     Return
     ------
-    K: numpy.array
+    K: numpy.ndarray
         of strike prices
     """
     # +1 for calls, -1 for puts
@@ -382,26 +423,30 @@ def strike_from_delta(delta, X, rf, y, tau, sigma, is_call):
 
     return(K)
 
-# def bs_greeks(x = None, f = None, K, rf, T, t, sigma, y, is_call):
-#     """
-#     """
-#     tau = T-t            # time to maturity
-#     phi = is_call*2 - 1  # +1 for call, -1 for put
-#
-#     # if no forward was provided, calculate it
-#     if f is None:
-#         f = x*np.exp((rf-y)*tau)
-#     if x is None:
-#         x = f*np.exp((y-rf)*tau)
-#
-#     dplus = (np.log(f/K) + sigma*sigma/2*tau)/(sigma*np.sqrt(tau))
-#     dminus = dplus - sigma*np.sqrt(tau)
-#
-#     delta = phi*np.exp(-y*tau)*fast_norm_cdf(phi*dplus)
-#     gamma = no.exp(-y*tau)*norm.pdf(dplus)/(x*sigma*np.sqrt(tau))
-
 def bs_vega(f, K, rf, y, tau, sigma):
-    """
+    """ Compute Black-Scholes vegas as in Wystup (2006)
+    For each strike in `K` and associated `sigma` computes sensitivity of
+    option to changes in volatility.
+
+    Parameters
+    ----------
+    f: float
+        forward price of the underlying
+    K: numpy.ndarray
+        of strike prices
+    rf: float
+        risk-free rate (domestic interest rate)
+    y: float
+        dividend yield (foreign interest rate)
+    tau: float
+        time to maturity, in years
+    sigma: numpy.ndarray
+        volatilities
+
+    Returns
+    -------
+    vega: numpy.ndarray
+        vegas
     """
     dplus = (np.log(f/K) + sigma*sigma/2*tau)/(sigma*np.sqrt(tau))
     vega = f*np.exp(-rf*tau)*np.sqrt(tau)*norm.pdf(dplus)
@@ -415,13 +460,16 @@ def fast_norm_cdf(x):
     return(1/2*(1 + erf(x/np.sqrt(2))))
 
 class lognormal_mixture():
-    """ Guess what.
+    """ Mixture of log-normals
+
     Parameters
     ----------
-    mu: float
-        mean
-    sigma: float
-        standard deviation
+    mu: numpy.ndarray
+        of means of normal variables that underlie log-normals
+    sigma: numpy.ndarray
+        of st. dev's of normal variables that underlie log-normals
+    wght: numpy.ndarray
+        of weights of each component
     """
     def __init__(self, mu, sigma, wght):
         """
@@ -433,7 +481,7 @@ class lognormal_mixture():
         self.wght = wght
 
     def moments(self):
-        """
+        """ TODO: finish moment-generating function
         """
         Ex = np.exp(self.mu+self.sigma*self.sigma/2).dot(self.wght)
 
@@ -441,16 +489,16 @@ class lognormal_mixture():
 
 
     def pdf(self, x):
-        """ PDF at point x
+        """ Compute PDF of mixture of log-normals at points in x
 
         Parameters
         ----------
-        x: numpy.array
+        x: numpy.ndarray
             of points
 
         Return
         ------
-        p: numpy.array
+        p: numpy.ndarray
             of probability densities
 
         """
@@ -478,7 +526,7 @@ class lognormal_mixture():
         return(d[0] if flag else d)
 
     def cdf(self, x):
-        """ CDF
+        """ Compute CDF of mixture of log-normals
         """
         flag = False
         if not (type(x) is np.ndarray):
@@ -500,7 +548,7 @@ class lognormal_mixture():
         return(p[0] if flag else p)
 
     def quantile(self, p):
-        """ Quantile function of mixture of log-normals
+        """ Compute quantiles of mixture of log-normals
         """
         flag = False
         if not (type(p) is np.ndarray):
@@ -524,10 +572,11 @@ class lognormal_mixture():
         return(q[0] if flag else q)
 
 
-def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
+def estimation_wrapper(data, tau, constraints, parallel=False):
     """ Loop over rows in `data` to estimate RND of the underlying.
 
-    Everything is annualized
+    Allow for parallel and standard (loop) regime. If parallel, uses
+    multiprocessing.
 
     Parameters
     ----------
@@ -538,19 +587,118 @@ def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
         maturity of options, in frac of year
     constraints: dict
         of constraints as in scipy.optimize.minimize
-    domain: numpy.ndarray-like
-        values at which risk-neutral pdf to be calculated
-    perc: numpy.ndarray-like
-        percentiles of risk-neutral pdf to calculate
+    parallel: boolean
+        whether to parallelize or not (multiprocessing is used)
 
     Returns
     -------
-    dens: pandas.DataFrame
-        of density at points provided in `domain`
     par: pandas.DataFrame
         of estimated parameters: [mu', sigma', w']
 
     TODO: handling bad data rows
+    """
+    if parallel:
+        # call to multiprocessing; create pool
+        n_proc = 2
+        pool = mproc.Pool(2)
+        # iterator is (conveniently) pd.iterrows
+        iterator = data.iterrows()
+        # function to apply is run_one_row, but it should be picklable
+        out = list(zip(*pool.map(fun, iterator, n_proc)))
+        par = pd.DataFrame(np.array([*out[1]]), index=out[0],
+            columns=["mu1", "mu2", "sigma1", "sigma2", "w1", "w2"])
+    else:
+        # allocate space for parameters
+        par = pd.DataFrame(
+            data=np.empty(shape=(len(data), 6)),
+            index=data.index,
+            columns=["mu1", "mu2", "sigma1", "sigma2", "w1", "w2"])
+        # estimate in a loop
+        for idx_row in data.iterrows():
+            # estimate rnd for this index
+            idx, res = run_one_row(idx_row, tau, constraints)
+            # store
+            par.loc[idx,:] = res
+
+    return(par)
+
+def run_one_row(idx_row, tau, constraints):
+    """ Wrapper around estimate_rnd working on (idx, row) from pandas.iterrows
+
+    """
+    # unpack the tuple
+    idx = idx_row[0]
+    row = idx_row[1]
+
+    logger.info("doing row %.10s..." % str(idx))
+    logger.debug(("This row:\n"+"%.4f "*len(row)+"\n") % tuple(row.values))
+
+    # fetch wings
+    deltas, ivs = get_wings(
+        row["rr25d"],
+        row["rr10d"],
+        row["bf25d"],
+        row["bf10d"],
+        row["atm"],
+        row["y"],
+        tau)
+
+    logger.debug(("IVs:\n"+"%.2f "*len(ivs)+"\n") % tuple(ivs*100))
+    logger.debug(("Deltas:\n"+"%.2f "*len(deltas)+"\n") % tuple(deltas))
+
+    # to strikes
+    K = strike_from_delta(
+        deltas,
+        row["s"],
+        row["rf"],
+        row["y"],
+        tau,
+        ivs,
+        True)
+
+    logger.debug(("K:\n"+"%.2f "*len(K)+"\n") % tuple(K))
+
+    # weighting matrix: inverse squared vegas
+    W = bs_vega(
+        row["f"],
+        K,
+        row["rf"],
+        row["y"],
+        tau,
+        ivs)
+    W = np.diag(1/(W*W))
+
+    logger.debug(("Vegas:\n"+"%.2f "*len(np.diag(W))+"\n") %
+        tuple(np.diag(W)))
+
+    # estimate rnd!
+    res = estimate_rnd(
+        ivs*np.sqrt(tau),
+        row["f"],
+        K,
+        row["rf"]*tau,
+        True,
+        W,
+        constraints=constraints)
+
+    return((idx, res))
+
+def fetch_density_quantiles(par, domain=None, perc=None):
+    """ For each index in par calculates rn density and quantiles
+    Parameters
+    ----------
+    par: pandas.DataFrame
+        of parameters with each row being [mu1, mu2, s1, s2, w1, w2]
+    domain: numpy.ndarray-like
+        values at which risk-neutral pdf to be calculated
+    perc: numpy.ndarray-like
+        percentiles of risk-neutral pdf to calculate
+    Returns
+    -------
+    dens: pandas.DataFrame
+        of density at points provided in `domain`
+    quant: pandas.DataFrame
+        of quantiles calculated at `perc`
     """
     if domain is None:
         domain = np.arange(0.8, 1.5, 0.005)
@@ -559,74 +707,21 @@ def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
 
     # allocate space
     dens = pd.DataFrame(
-        data=np.empty(shape=(len(data), len(domain))),
-        index=data.index,
+        data=np.empty(shape=(len(par), len(domain))),
+        index=par.index,
         columns=domain)
     quant = pd.DataFrame(
-        data=np.empty(shape=(len(data), len(perc))),
-        index=data.index,
+        data=np.empty(shape=(len(par), len(perc))),
+        index=par.index,
         columns=perc)
-    par = pd.DataFrame(
-        data=np.empty(shape=(len(data), 6)),
-        index=data.index,
-        columns=["mu1", "mu2", "sigma1", "sigma2", "w1", "w2"])
 
-    # estimate in a loop
-    for idx, row in data.iterrows():
-
-        logger.info("doing row %.10s..." % str(idx))
-        logger.debug(("This row:\n"+"%.4f "*len(row)+"\n") % tuple(row.values))
-
-        # fetch wings
-        deltas, ivs = get_wings(
-            row["rr25d"],
-            row["rr10d"],
-            row["bf25d"],
-            row["bf10d"],
-            row["atm"],
-            row["y"],
-            tau)
-
-        logger.debug(("IVs:\n"+"%.2f "*len(ivs)+"\n") % tuple(ivs*100))
-        logger.debug(("Deltas:\n"+"%.2f "*len(deltas)+"\n") % tuple(deltas))
-
-        # to strikes
-        K = strike_from_delta(
-            deltas,
-            row["s"],
-            row["rf"],
-            row["y"],
-            tau,
-            ivs,
-            True)
-
-        logger.debug(("K:\n"+"%.2f "*len(K)+"\n") % tuple(K))
-
-        # weighting matrix: inverse squared vegas
-        W = bs_vega(
-            row["f"],
-            K,
-            row["rf"],
-            row["y"],
-            tau,
-            ivs)
-        W = np.diag(1/(W*W))
-
-        logger.debug(("Vegas:\n"+"%.2f "*len(np.diag(W))+"\n") %
-            tuple(np.diag(W)))
-
-        # estimate rnd!
-        res = estimate_rnd(
-            ivs*np.sqrt(tau),
-            row["f"],
-            K,
-            row["rf"]*tau,
-            True,
-            W,
-            constraints=constraints)
-
+    # loop over rows of par
+    for idx, res in par.iterrows():
         # init lognormal_mixture object
-        ln_mix = lognormal_mixture(res[1][:2], res[1][2:], res[0])
+        mu = res.values[:2]
+        sigma = res.values[2:4]
+        wght = res.values[4:]
+        ln_mix = lognormal_mixture(mu, sigma, wght)
 
         # density
         p = ln_mix.pdf(domain)
@@ -642,25 +737,12 @@ def estimation_wrapper(data, tau, constraints, domain=None, perc=None):
         q = ln_mix.quantile(perc)
 
         # store
-        par.loc[idx,:] = np.concatenate([res[1], res[0]])
         dens.loc[idx,:] = p
         quant.loc[idx,:] = q
 
-    return(dens, par, quant)
+    return((dens, quant))
 
-
-# if __name__ == "__main__":
-#     from import_data import data
-#     data = data.ix[1000:1004,:]
-#
-#     # constraints
-#     C = np.array([
-#         [0, 0],
-#         [0, 0],
-#         [-1, 1],
-#         [4/3, -3/4]])
-#     constraints = {
-#         "type" : "ineq",
-#         "fun" : lambda x: x.dot(C)}
-#
-#     p = estimation_wrapper(data, constraints)
+def fun(x):
+    """ run_one_row to use in multiprocessing
+    """
+    return(run_one_row(x, tau=tau, constraints=constraints))
