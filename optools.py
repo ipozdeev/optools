@@ -3,36 +3,90 @@ import pandas as pd
 import numpy as np
 from scipy.special import erf
 from scipy.stats import norm
-from scipy.optimize import fsolve, minimize, fmin, differential_evolution
+from scipy.optimize import fsolve, minimize, differential_evolution
 import multiprocessing as mproc
 import sys
 # import ipdb
 
+# module with global configurations
+import config
+
+# logging module
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-# constraints: ratio of sigmas <4/3
-C = np.array([
-    [0, 0],
-    [0, 0],
-    [-1, 4/3],
-    [4/3, -1]])
+def aux_fun(x):
+    """ run_one_row to use in multiprocessing
+    """
+    return(run_one_row(x, **config.cfg_dict))
 
-# constraints
-constraints = {
-    "type" : "ineq",
-    "fun" : lambda x: x.dot(C)}
-tau = 1/12
+def estimation_wrapper(data, tau, parallel=False):
+    """ Loop over rows in `data` to estimate RND of the underlying.
 
-def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
+    Allow for parallel and standard (loop) regime. If parallel, uses
+    multiprocessing (does not work from IPython).
+
+    Parameters
+    ----------
+    data: pandas.DataFrame
+        with rows for 5 option contracts, spot price, forward price and two
+        risk-free rates called rf for domestic and y for foreign
+    tau: float
+        maturity of options, in frac of year
+    parallel: boolean
+        whether to parallelize or not
+
+    Returns
+    -------
+    par: pandas.DataFrame
+        of estimated parameters: [mu', sigma', w']
+
+    """
+    # delete bad rows
+    data.dropna(inplace=True)
+
+    if parallel:
+        # call to multiprocessing; create pool with this many processes
+        n_proc = 4
+        pool = mproc.Pool(n_proc)
+
+        # iterator is (conveniently) pd.iterrows
+        iterator = data.iterrows()
+
+        # function to apply is run_one_row, but it should be picklable,
+        # hence the story with it being located right above
+        out = list(zip(*pool.map(aux_fun, iterator, n_proc)))
+
+        # output is (index, data) -> need to unpack & name
+        par = pd.DataFrame(np.array([*out[1]]), index=out[0],
+            columns=["mu1", "mu2", "sigma1", "sigma2", "w1", "w2"])
+
+    else:
+        # allocate space for parameters (6 of them now)
+        par = pd.DataFrame(
+            data=np.empty(shape=(len(data), 6)),
+            index=data.index,
+            columns=["mu1", "mu2", "sigma1", "sigma2", "w1", "w2"])
+        # estimate in a loop
+        for idx_row in data.iterrows():
+            # estimate rnd for this index; unpack the dict in config to get
+            # hold of constraints and bounds
+            idx, res = run_one_row(idx_row, **config.cfg_dict)
+            # store
+            par.loc[idx,:] = res
+
+    return(par)
+
+def estimate_rnd(c_true, f_true, K, rf, is_iv, W, opt_meth, **kwargs):
     """ Fit parameters of mixture of two log-normals to market data.
 
     Everything is per period.
 
     Returns
     -------
-    res:
+    res: numpy.ndarray
+        [mu1, mu2, sigma1, sigma2, w1, w2]
 
     """
     # if c_true is not IV, convert it to IV
@@ -63,75 +117,32 @@ def estimate_rnd(c_true, f_true, K, rf, is_iv, W, **kwargs):
     # switch to 2
     x0 = [x0[0]*np.array([1.05, 1/1.05]), x0[1]*np.array([1, 1])]
 
-    # bounds
+    # bounds: [mu1, mu2, sigma1, sigma2]
     bounds = [(np.log(f_true*0.9), np.log(f_true/0.9))]*2 +\
         [(0, proto_x[1]*3)]*2
 
     # 2) using this initial guess, cook up a more sophisticated problem
     # space for parameters and loss function value
-    # try differential_evolution
-    # temp --------------------------------------------------------------------
-    try:
-        # obj_fun will be function of 5 arguments, so need additional bound
-        # on weight (second weight is [1 - first weight])
-        new_bounds = bounds + [(0.01, 0.49)]
+    if opt_meth == "differential_evolution":
+        # try differential_evolution
+        try:
+            x, w = optimize_for_mixture_par(x0, K, rf, c_true, f_true, True,
+                W, "differential_evolution", bounds=bounds)
+        except:
+            # if fails, stick to the standard stuff
+            # err = sys.exc_info()[0]
+            logger.error("differential evolution aborted:\n")
+            x, w = optimize_for_mixture_par(x0, K, rf, c_true, f_true, True,
+                W, opt_meth, bounds=bounds, **kwargs)
+        # end of try/except
+    else:
+        x, w = optimize_for_mixture_par(x0, K, rf, c_true, f_true, True,
+            W, opt_meth, **kwargs)
 
-        # new objective: function of [mu1,mu2,s1,s2,w1]
-        def new_obj_fun(x):
-            x1 = x[:4]
-            x2 = np.array([x[4], 1-x[4]])
-            return objective_for_rnd(x1, x2, K, rf, c_true, f_true, True, W)
-
-        res = differential_evolution(new_obj_fun, new_bounds)
-        best_p = res.x[-1]
-        w = np.array([best_p, 1-best_p])
-        x = res.x[:4]
-    # end temp ----------------------------------------------------------------
-    except:
-        # handle exception above
-        # err = sys.exc_info()[0]
-        logger.error("differential evolution aborted:\n")
-
-        xs = {}
-        loss = {}
-        for p in range(3,48,2):
-            # two probabilities
-            wght = np.array([p/100, 1-p/100])
-
-            # objective
-            obj_fun = lambda x: \
-                objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
-
-            # optimize
-            second_guess = minimize(obj_fun, x0,
-                method = "SLSQP", bounds = bounds, **kwargs)
-
-            # store parameters, value
-            xs.update({p/100 : second_guess.x})
-            loss.update({second_guess.fun : p/100})
-
-        logger.debug(("Losses over w:\n"+"%04d "*len(loss.keys())+"\n") %
-            tuple(range(3,48,2)))
-        logger.debug(("\n"+"%4.3f "*len(loss.keys())+"\n") %
-            tuple(loss.keys()))
-
-        # find minimum of losses
-        best_p = loss[min(loss.keys())]
-        w = np.array([best_p, 1-best_p])
-
-        # warning if weight is close to 0 or 0.5
-        if (best_p < 0.04) or (best_p > 0.47):
-            logger.warning("Weight of one component is at the boundary: {}".\
-                format(best_p))
-
-        # and parameters of interest
-        x = xs[best_p]
-
-    # end of try/except
-    logger.debug("Weight: %.2f\n" % best_p)
+    logger.debug("Weight: %.2f\n" % w[0])
     logger.debug(("Par: "+"%.2f "*len(x)+"\n") % tuple(x))
 
-    return(np.concatenate((x, w)))
+    return np.concatenate((x, w))
 
 def objective_for_rnd(par, wght, K, rf, c_true, f_true, is_iv, W = None):
     """Compute objective function for minimization problem in RND estimation.
@@ -346,7 +357,9 @@ def bs_price(f, K, rf, tau, sigma):
 def get_wings(r25, r10, b25, b10, atm, y, tau):
     """Finds no-arbitrage quotes of single options from quotes of contracts.
 
-    Following Malz (2014), one can recover prices (in terms of implied vol) of the so-called wing options, or individual options entering the risk reversals and strangles.
+    Following Malz (2014), one can recover prices (in terms of implied vol) of
+    the so-called wing options, or individual options entering the risk
+    reversals and strangles.
 
     Everything relevant is annualized.
 
@@ -459,170 +472,7 @@ def fast_norm_cdf(x):
     """
     return(1/2*(1 + erf(x/np.sqrt(2))))
 
-class lognormal_mixture():
-    """ Mixture of log-normals
-
-    Parameters
-    ----------
-    mu: numpy.ndarray
-        of means of normal variables that underlie log-normals
-    sigma: numpy.ndarray
-        of st. dev's of normal variables that underlie log-normals
-    wght: numpy.ndarray
-        of weights of each component
-    """
-    def __init__(self, mu, sigma, wght):
-        """
-        """
-        assert all([len(p) == len(wght) for p in [mu, sigma]])
-
-        self.mu = mu
-        self.sigma = sigma
-        self.wght = wght
-
-    def moments(self):
-        """ TODO: finish moment-generating function
-        """
-        Ex = np.exp(self.mu+self.sigma*self.sigma/2).dot(self.wght)
-
-        return((Ex,))
-
-
-    def pdf(self, x):
-        """ Compute PDF of mixture of log-normals at points in x
-
-        Parameters
-        ----------
-        x: numpy.ndarray
-            of points
-
-        Return
-        ------
-        p: numpy.ndarray
-            of probability densities
-
-        """
-        flag = False
-        if not (type(x) is np.array):
-            flag = True
-            x = np.array([x,])
-
-        # dimensions
-        M = len(self.wght)
-        N = len(x)
-
-        # broadcast
-        mu = np.array([self.mu,]*N).transpose()
-        sigma = np.array([self.sigma,]*N).transpose()
-        x = np.array([x,]*M)
-
-        # densities
-        arg = (np.log(x) - mu)/sigma
-        d = 1/(x*sigma*np.sqrt(2*np.pi))*np.exp(-arg*arg/2)
-
-        # weighted average
-        d = self.wght.dot(d)
-
-        return(d[0] if flag else d)
-
-    def cdf(self, x):
-        """ Compute CDF of mixture of log-normals
-        """
-        flag = False
-        if not (type(x) is np.ndarray):
-            flag = True
-            x = np.array([x,])
-
-        # dimensions
-        M = len(self.wght)
-        N = len(x)
-
-        # broadcast
-        mu = np.array([self.mu,]*N).transpose()
-        sigma = np.array([self.sigma,]*N).transpose()
-        x = np.array([x,]*M)
-
-        p = 0.5*(1+erf((np.log(x)-mu)/(np.sqrt(2)*sigma)))
-        p = self.wght.dot(p)
-
-        return(p[0] if flag else p)
-
-    def quantile(self, p):
-        """ Compute quantiles of mixture of log-normals
-        """
-        flag = False
-        if not (type(p) is np.ndarray):
-            flag = True
-            p = np.array([p,])
-
-        # find root of CDF(x)=p
-        obj_fun = lambda x: self.cdf(x) - p
-
-        # starting value: exp{quantiles of single normal} TODO: think about it
-        x0 = np.exp(norm.ppf(p,
-            loc=self.mu.dot(self.wght),
-            scale=self.sigma.dot(self.wght)))
-
-        # fprime is pdf
-        fprime = lambda x: np.diag(self.pdf(x))
-
-        # solve
-        q = fsolve(func=obj_fun, x0=x0, fprime=fprime)
-
-        return(q[0] if flag else q)
-
-
-def estimation_wrapper(data, tau, constraints, parallel=False):
-    """ Loop over rows in `data` to estimate RND of the underlying.
-
-    Allow for parallel and standard (loop) regime. If parallel, uses
-    multiprocessing.
-
-    Parameters
-    ----------
-    data: pandas.DataFrame
-        with rows for 5 option contracts, spot price, forward price and two
-        risk-free rates called rf for domestic and y for foreign
-    tau: float
-        maturity of options, in frac of year
-    constraints: dict
-        of constraints as in scipy.optimize.minimize
-    parallel: boolean
-        whether to parallelize or not (multiprocessing is used)
-
-    Returns
-    -------
-    par: pandas.DataFrame
-        of estimated parameters: [mu', sigma', w']
-
-    TODO: handling bad data rows
-    """
-    if parallel:
-        # call to multiprocessing; create pool
-        n_proc = 2
-        pool = mproc.Pool(2)
-        # iterator is (conveniently) pd.iterrows
-        iterator = data.iterrows()
-        # function to apply is run_one_row, but it should be picklable
-        out = list(zip(*pool.map(fun, iterator, n_proc)))
-        par = pd.DataFrame(np.array([*out[1]]), index=out[0],
-            columns=["mu1", "mu2", "sigma1", "sigma2", "w1", "w2"])
-    else:
-        # allocate space for parameters
-        par = pd.DataFrame(
-            data=np.empty(shape=(len(data), 6)),
-            index=data.index,
-            columns=["mu1", "mu2", "sigma1", "sigma2", "w1", "w2"])
-        # estimate in a loop
-        for idx_row in data.iterrows():
-            # estimate rnd for this index
-            idx, res = run_one_row(idx_row, tau, constraints)
-            # store
-            par.loc[idx,:] = res
-
-    return(par)
-
-def run_one_row(idx_row, tau, constraints):
+def run_one_row(idx_row, tau, opt_meth, constraints):
     """ Wrapper around estimate_rnd working on (idx, row) from pandas.iterrows
 
     """
@@ -671,7 +521,7 @@ def run_one_row(idx_row, tau, constraints):
     logger.debug(("Vegas:\n"+"%.2f "*len(np.diag(W))+"\n") %
         tuple(np.diag(W)))
 
-    # estimate rnd!
+    # estimate rnd! TODO: constraints are hardcoded now, relocate somewhere
     res = estimate_rnd(
         ivs*np.sqrt(tau),
         row["f"],
@@ -679,70 +529,70 @@ def run_one_row(idx_row, tau, constraints):
         row["rf"]*tau,
         True,
         W,
+        opt_meth=opt_meth,
         constraints=constraints)
 
     return((idx, res))
 
-def fetch_density_quantiles(par, domain=None, perc=None):
-    """ For each index in par calculates rn density and quantiles
-    Parameters
-    ----------
-    par: pandas.DataFrame
-        of parameters with each row being [mu1, mu2, s1, s2, w1, w2]
-    domain: numpy.ndarray-like
-        values at which risk-neutral pdf to be calculated
-    perc: numpy.ndarray-like
-        percentiles of risk-neutral pdf to calculate
-    Returns
-    -------
-    dens: pandas.DataFrame
-        of density at points provided in `domain`
-    quant: pandas.DataFrame
-        of quantiles calculated at `perc`
+def optimize_for_mixture_par(x0, K, rf, c_true, f_true, is_iv, W,
+    opt_meth, **kwargs):
     """
-    if domain is None:
-        domain = np.arange(0.8, 1.5, 0.005)
-    if perc is None:
-        perc = np.array([0.1, 0.5, 0.9])
-
-    # allocate space
-    dens = pd.DataFrame(
-        data=np.empty(shape=(len(par), len(domain))),
-        index=par.index,
-        columns=domain)
-    quant = pd.DataFrame(
-        data=np.empty(shape=(len(par), len(perc))),
-        index=par.index,
-        columns=perc)
-
-    # loop over rows of par
-    for idx, res in par.iterrows():
-        # init lognormal_mixture object
-        mu = res.values[:2]
-        sigma = res.values[2:4]
-        wght = res.values[4:]
-        ln_mix = lognormal_mixture(mu, sigma, wght)
-
-        # density
-        p = ln_mix.pdf(domain)
-
-        # issue warning is density integrates to something too far off from 1
-        intg = np.trapz(p, domain)
-        if abs(intg-1) > 1e-05:
-            logger.warning(
-                "Large deviation of density integral from one: {:6.5f}".\
-                format(intg))
-
-        # quantiles
-        q = ln_mix.quantile(perc)
-
-        # store
-        dens.loc[idx,:] = p
-        quant.loc[idx,:] = q
-
-    return((dens, quant))
-
-def fun(x):
-    """ run_one_row to use in multiprocessing
     """
-    return(run_one_row(x, tau=tau, constraints=constraints))
+    if opt_meth == "differential_evolution":
+        # redefine bounds - now need one on weight now
+        new_bounds = kwargs["bounds"] + [(0.01, 0.49)]
+
+        # new objective: function of [mu1,mu2,s1,s2,w1]
+        def new_obj_fun(x):
+            # mus, sigma
+            x1 = x[:4]
+            # weight
+            x2 = np.array([x[4], 1-x[4]])
+
+            return objective_for_rnd(x1, x2, K, rf, c_true, f_true, is_iv, W)
+
+        # optimize
+        res = differential_evolution(new_obj_fun, new_bounds)
+        # unpack weight
+        w = np.array([res.x[-1], 1-res.x[-1]])
+        # unpack mu, sigma
+        x = res.x[:4]
+
+    else:
+        # allocate space for grid search over weight
+        xs = {}
+        loss = {}
+        # loop over weights
+        for p in range(1,50,2):
+            # two weights
+            wght = np.array([p/100, 1-p/100])
+
+            # objective changes with each weight
+            obj_fun = lambda x: \
+                objective_for_rnd(x, wght, K, rf, c_true, f_true, True, W)
+
+            # optimize (**kwargs are for bounds and constraints)
+            res = minimize(obj_fun, x0, method=opt_meth, **kwargs)
+
+            # store parameters, value
+            xs.update({p/100 : res.x})
+            loss.update({res.fun : p/100})
+
+        logger.debug(("Losses over w:\n"+"%04d "*len(loss.keys())+"\n") %
+            tuple(range(1,50,2)))
+        logger.debug(("\n"+"%4.3f "*len(loss.keys())+"\n") %
+            tuple(loss.keys()))
+
+        # find minimum of losses
+        best_p = loss[min(loss.keys())]
+        w = np.array([best_p, 1-best_p])
+
+        # mu, sigma
+        x = xs[best_p]
+
+    # warning if weight is close to 0 or 0.5
+    if (w[0] < 0.02) or (w[0] > 0.48):
+        logger.warning("Weight of the first component is at the boundary: {}".\
+            format(w[0]))
+
+    return x, w
