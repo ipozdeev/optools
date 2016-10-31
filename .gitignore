@@ -1,1 +1,5 @@
 __pycache__
+tests/test_multiprocessing.py
+sandbox.py
+calculations.py
+calculations*.py
