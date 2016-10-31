@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 from scipy.integrate import quad
 from optools import lnmix
-from numpy.testing import assert_array_equal, assert_array_almost_equal
+from numpy.testing import assert_array_almost_equal
 
 class TestLognormalMixtureWithR(unittest.TestCase):
     """
@@ -66,8 +66,19 @@ class TestLognormalMixtureWithR(unittest.TestCase):
         self.sigma[1] = 1.5
         E_x, Var_x = self.ln_mix.moments()
         E_x_quad, _, = quad(lambda x: x*self.ln_mix.pdf(x), 0, np.inf)
-        Var_x_quad, _, = quad(lambda x: (x-E_x)**2*self.ln_mix.pdf(x),
+        Var_x_quad, _, = quad(lambda x: (x-E_x_quad)**2*self.ln_mix.pdf(x),
             0, np.inf)
+        self.assertAlmostEqual(E_x, E_x_quad, places=4)
+        self.assertAlmostEqual(Var_x, Var_x_quad, places=4)
+
+    def test_moments_of_log(self):
+        """
+        """
+        E_x, Var_x = self.ln_mix.moments_of_log()
+        E_x_quad, _, = quad(lambda x: np.log(x)*self.ln_mix.pdf(x), 0, np.inf)
+        Var_x_quad, _, = quad(lambda x:
+            (np.log(x)-E_x_quad)**2*self.ln_mix.pdf(x), 0, np.inf)
+
         self.assertAlmostEqual(E_x, E_x_quad, places=4)
         self.assertAlmostEqual(Var_x, Var_x_quad, places=4)
 

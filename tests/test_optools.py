@@ -1,11 +1,7 @@
 import unittest
-from numpy.testing import assert_array_equal, assert_array_almost_equal
+from numpy.testing import assert_array_almost_equal
 import pandas as pd
 import numpy as np
-from scipy.stats import norm
-from scipy.special import erf
-import scipy.integrate as integrate
-import matplotlib.pyplot as plt
 
 usr = "hsg-spezial"
 path = "c:/users/" + usr + "/google drive/" + \
@@ -21,50 +17,6 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 from optools import optools as op
-
-class TestLognormalMixture(unittest.TestCase):
-    """
-    """
-    def setUp(self):
-        """
-        """
-        self.wght = np.array([0.3, 0.7])
-        self.mu = np.array([1, 1.2])
-        self.sigma = np.array([0.25, 0.1])
-        self.x = np.arange(0.01, 5, 0.01)
-
-    def test_pdf(self):
-        """
-        """
-
-        ln_mix = op.lognormal_mixture(
-            self.mu,
-            self.sigma,
-            self.wght)
-
-        p = ln_mix.pdf(self.x)
-
-        # plt.plot(self.x, p)
-        # plt.show()
-
-        self.assertAlmostEqual(np.trapz(p, self.x), 1, places = 2)
-
-    def test_cdf(self):
-        """
-        """
-
-        ln_mix = op.lognormal_mixture(
-            self.mu,
-            self.sigma,
-            self.wght)
-
-        p = ln_mix.pdf(self.x)
-        q = ln_mix.cdf(np.array([3., 10.]))
-        q_star = integrate.quad(lambda xx: ln_mix.pdf(xx), 0., 3.)
-        self.assertAlmostEqual(
-            q[0],
-            q_star[0],
-            places=4)
 
 class TestSimpleFormulas(unittest.TestCase):
     """
@@ -87,7 +39,8 @@ class TestSimpleFormulas(unittest.TestCase):
 
     def test_bs_price(self):
         """
-        bs_price returns correct values for a set of strikes and an equally long set of sigmas
+        bs_price returns correct values for a set of strikes and an equally
+        long set of sigmas
         """
         res = \
             op.bs_price(self.f, self.K, self.rf, self.tau, self.sigma)
@@ -112,8 +65,6 @@ class TestSimpleFormulas(unittest.TestCase):
         res = op.bs_iv(self.c_hat, self.f, self.K, self.rf, self.tau)
 
         assert_array_almost_equal(res, self.sigma, decimal = 4)
-
-
 
 class TestHarderFormulas(unittest.TestCase):
     """
@@ -183,7 +134,8 @@ class TestOptimizationProblem(unittest.TestCase):
         self.wght = np.array([0.3, 0.7])
         self.rf = 0.01
 
-        self.f_true = self.wght.dot(np.exp(self.mu + 0.5*self.sigma*self.sigma))
+        self.f_true = self.wght.dot(np.exp(self.mu +
+            0.5*self.sigma*self.sigma))
 
         self.c = op.price_under_mixture(
             self.K,
@@ -192,83 +144,29 @@ class TestOptimizationProblem(unittest.TestCase):
             self.sigma,
             self.wght)
 
-    def test_estimate_rnd(self):
+    def test_estimate_rnd_slsqp(self):
         # call prices from given values of mu, sigma and weights
 
         res = op.estimate_rnd(self.c, self.f_true, self.K, self.rf,
-            is_iv = False, W = None)
+            is_iv = False, W = None, opt_meth="SLSQP")
 
         # assert_array_almost_equal(res[1], self.wght, decimal = 1)
         assert_array_almost_equal(
             res[:4],
             np.concatenate((self.mu, self.sigma)), decimal = 1)
 
-# class TestWrapper(unittest.TestCase):
-#     """
-#     """
-#     def setUp(self):
-#         self.K = np.arange(85,105,2).reshape(2,-1)
-#         self.mu = np.random.random(2)+4
-#         self.sigma = np.random.random(2)
-#         self.wght = np.array([0.3, 0.7])
-#         self.rf = 0.01
-#
-#         self.f_true = self.wght.dot(np.exp(self.mu + \
-#             0.5*self.sigma*self.sigma))
-#
-#         self.c = op.price_under_mixture(
-#             self.K,
-#             self.rf,
-#             self.mu,
-#             self.sigma,
-#             self.wght)
-#
-# class TestRealStuff(unittest.TestCase):
-#     """
-#     """
-#     def setUp(self):
-#         """
-#         """
-#         data = pd.read_csv(
-#             "c:/Users/pozdeev/Desktop/piece_opt_data.txt",
-#             header=0, index_col=0)
-#         iv_quote = data.ix[1,:5].values/100/4  # quarterly?
-#         self.r10 = iv_quote[0]
-#         self.r25 = iv_quote[1]
-#         self.b10 = iv_quote[2]
-#         self.b25 = iv_quote[3]
-#         self.atm = iv_quote[4]
-#
-#         self.S = data["S"].values[1]
-#         self.f = self.S + data["F"].values[1]/10000
-#         self.rf = data["rf"].values[1]/100/4  # quarterly
-#         self.y = data["y"].values[1]/100/4  # quarterly
-#
-#         # self.r25 = 0.18
-#         # self.b25 = 0.15
-#         # self.atm = 4.83
-#         # self.r10 = self.r25
-#         # self.b10 = self.b25
-#         # self.y = 0
-#
-#     def test_get_wings(self):
-#         """
-#         """
-#         deltas, ivs = op.get_wings(
-#             self.r25, self.r10, self.b25, self.b10, self.atm, self.y, 1)
-#
-#         self.assertAlmostEqual(deltas[2], 0.5, places=2)
-#         # self.assertEqual(ivs[1], 5.07)
-#
-#     def test_strike_from_delta(self):
-#         """
-#         """
-#         deltas, ivs = op.get_wings(
-#             self.r25, self.r10, self.b25, self.b10, self.atm, self.y, 1)
-#         res = op.strike_from_delta(deltas, self.S, self.rf, self.y, 1,
-#             ivs, True)
-#
-#         print(res)
+    def test_estimate_rnd_diff_evol(self):
+        # call prices from given values of mu, sigma and weights
+
+        res = op.estimate_rnd(self.c, self.f_true, self.K, self.rf,
+            is_iv = False, W = None, opt_meth="differential_evolution")
+
+        # assert_array_almost_equal(res[1], self.wght, decimal = 1)
+        assert_array_almost_equal(
+            res[:4],
+            np.concatenate((self.mu, self.sigma)), decimal = 1)
+
+    # TODO: write a comparison test
 
 if __name__ == "__main__":
     unittest.main()
