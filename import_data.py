@@ -1,71 +1,98 @@
 # here be dragons
-import optools as opt
 import pandas as pd
-import numpy as np
-import datetime as dt
-import matplotlib.pyplot as plt
 
-# import data
-usr = "hsg-spezial"
-data_path = "c:/users/"+usr+\
-    "/google drive/personal/option_implied_betas_project/data/"
+def import_data(data_path, filename, tau_str):
+    """ Read in info from `filename`
 
-# read in: contracts
-deriv = pd.read_excel(
-    io=(data_path+"eurchf_fx_deriv.xlsx"),
-    sheetname="1M",
-    skiprows=8,
-    header=None)
+    File has to contain sheets named "1M" "3M" which store quotes of option
+    contracts
+    """
+    base_cur = filename[:3]
+    counter_cur = filename[3:6]
 
-# disassemble and concatenate
-deriv = pd.concat(
-    objs=[pd.DataFrame(
-        data=deriv.ix[:,p*2+1].values, index=deriv.ix[:,p*2].values)
-            for p in range(5)],
-    axis=1,
-    ignore_index=True)
+    # read in: contracts ------------------------------------------------------
+    deriv = pd.read_excel(
+        io=data_path+filename,
+        sheetname=tau_str.upper(),
+        skiprows=8,
+        header=None)
 
-# rename
-deriv.columns = ["rr10d", "rr25d", "bf10d", "bf25d", "atm"]
+    # fetch pairs of (dates, values), remove nan
+    deriv = [deriv.ix[:,(p*2):(p*2+1)].dropna() for p in range(5)]
 
-# from percentage to fractions of 1
-deriv = deriv/100
+    # transform each pair into DataFrame indexed by first column (dates)
+    for p in range(5):
+        deriv[p].index = deriv[p].pop(p*2)
 
-# read in: S,F
-sf = pd.read_excel(
-    io=data_path+"eurchf_fx_deriv.xlsx",
-    sheetname="S,F",
-    skiprows=5,
-    header=None)
+    # concatenate pairs
+    deriv = pd.concat(deriv, axis=1, ignore_index=True)
 
-sf = pd.concat(
-    objs=[pd.DataFrame(
-        sf.ix[:,p*2+1].values, index=sf.ix[:,p*2].values)
-            for p in range(3)],
-    axis=1,
-    ignore_index=True)
+    # rename
+    deriv.columns = ["rr10d", "rr25d", "bf10d", "bf25d", "atm"]
 
-sf.columns = ["s","f1m","f3m"]
+    # volatility from percentage to fractions of 1
+    deriv = deriv/100
 
-# read in: rf
-rf = pd.read_excel(
-    io=data_path+"eurchf_fx_deriv.xlsx",
-    sheetname="RF",
-    skiprows=5,
-    header=None)
+    # read in: S,F ------------------------------------------------------------
+    sf = pd.read_excel(
+        io=data_path+filename,
+        sheetname="S,F",
+        skiprows=5,
+        header=None)
 
-rf = pd.concat(
-    objs=[pd.DataFrame(
-        rf.ix[:,p*2+1].dropna().values, index=rf.ix[:,p*2].dropna().values)
-            for p in range(4)],
-    axis=1,
-    ignore_index=True)
+    sf = [sf.ix[:,(p*2):(p*2+1)].dropna() for p in range(3)]
 
-rf.columns = ["eur1m", "eur3m", "chf1m", "chf3m"]
-rf = rf/100
+    for p in range(3):
+        sf[p].index = sf[p].pop(p*2)
 
-# merge everything
-data = deriv.join(sf, how="inner").join(rf, how="inner")
+    sf = pd.concat(sf, axis=1, ignore_index=True)
 
-# drop na
-data.dropna(inplace=True)
+    sf.columns = ["s","f1m","f3m"]
+
+    # choose required maturity
+    sf = sf[["s", "f"+tau_str]]
+
+    # read in: rf -------------------------------------------------------------
+    # converters for dates (experimental)
+    converters = {}
+    for p in range(4):
+        converters[p*2] = lambda x: pd.to_datetime(x)
+    rf = pd.read_excel(
+        io=data_path+filename,
+        sheetname="RF",
+        skiprows=5,
+        header=None,
+        converters=converters)
+
+    rf = [rf.ix[:,(p*2):(p*2+1)].dropna() for p in range(4)]
+
+    for p in range(4):
+        rf[p].index = rf[p].pop(p*2)
+
+    rf = pd.concat(rf, axis=1, ignore_index=True)
+
+    rf.columns = [base_cur+"1m", base_cur+"3m",
+        counter_cur+"1m", counter_cur+"3m"]
+
+    # select required maturity
+    rf = rf[[base_cur+tau_str, counter_cur+tau_str]]
+
+    rf = rf/100
+
+    # merge everything --------------------------------------------------------
+    data = deriv.join(sf, how="inner").join(rf, how="inner")
+
+    # select relevant maturity ------------------------------------------------
+    data = data[list(deriv.columns) + ["s",] + \
+        ["f"+tau_str, counter_cur+tau_str, base_cur+tau_str]]
+
+    # rename
+    data.columns = list(deriv.columns) + ["s",] + ["f", "rf", "y"]
+
+    # from forward points to forward ------------------------------------------
+    data.loc[:,"f"] = data["s"]+data["f"]/10000
+
+    # drop na -----------------------------------------------------------------
+    data.dropna(inplace=True)
+
+    return data
