@@ -1,64 +1,131 @@
-# miscellaneous utility functions
 import pandas as pd
 import numpy as np
-from scipy.optimize import fsolve
-import lnmix
+import h5py
 
-def fetch_density_quantiles(par, domain=None, perc=None):
-    """ For each index in par calculates rn density and quantiles
+# miscellaneous utility functions
+def pandas_to_hdf(group, pandas_object, dset_name, **kwargs):
+    """ Store a pandas object to a group of an HDF file
+
     Parameters
     ----------
-    par: pandas.DataFrame
-        of parameters with each row being [mu1, mu2, s1, s2, w1, w2]
-    domain: numpy.ndarray-like
-        values at which risk-neutral pdf to be calculated
-    perc: numpy.ndarray-like
-        percentiles of risk-neutral pdf to calculate
+    **kwargs : dict
+        other parameters to h5py.group.create_dataset
+
     Returns
     -------
-    dens: pandas.DataFrame
-        of density at points provided in `domain`
-    quant: pandas.DataFrame
-        of quantiles calculated at `perc`
+    None
     """
-    if domain is None:
-        domain = np.arange(0.8, 1.5, 0.005)
-    if perc is None:
-        perc = np.array([0.1, 0.5, 0.9])
+    # create new dataset within `group`
+    dset = group.require_dataset(name=dset_name, shape=pandas_object.shape,
+        dtype=pandas_object.values.dtype)
+    dset[...] = pandas_object.values
 
-    # allocate space
-    dens = pd.DataFrame(
-        data=np.empty(shape=(len(par), len(domain))),
-        index=par.index,
-        columns=domain)
-    quant = pd.DataFrame(
-        data=np.empty(shape=(len(par), len(perc))),
-        index=par.index,
-        columns=perc)
+    # Need to store all attributes of `pandas_object`;
+    # index is stored irrespective of whether it is Series, DataFrame or Panel
 
-    # loop over rows of par
-    for idx, res in par.iterrows():
-        # init lognormal_mixture object
-        mu = res.values[:2]
-        sigma = res.values[2:4]
-        wght = res.values[4:]
-        ln_mix = lnmix.lognormal_mixture(mu, sigma, wght)
+    # other attributes are stored conditional on `pandas_object` being
+    # Series, DataFrame or Panel
+    if pandas_object.ndim == 1:
+        # Series: index only (convert to string and encode)
+        dset.attrs["index"] = pandas_object.index.map(
+            lambda x: x.strftime("%Y%m%d")).astype('S')
 
-        # density
-        p = ln_mix.pdf(domain)
+    if pandas_object.ndim == 2:
+        # DataFrame: index + columns (encode all strings if ASCII)
+        dset.attrs["index"] = pandas_object.index.map(
+            lambda x: x.strftime("%Y%m%d")).astype('S')
+        col = [p.encode() if isinstance(p, str) else p \
+            for p in pandas_object.columns]
+        dset.attrs["columns"] = col
 
-        # issue warning is density integrates to something too far off from 1
-        intg = np.trapz(p, domain)
-        if abs(intg-1) > 1e-05:
-            logger.warning(
-                "Large deviation of density integral from one: {:6.5f}".\
-                format(intg))
+    elif pandas_object.ndim == 3:
+        # Panel: index + two axes (NB: "items" are stored as "index")
+        # (encode all strings if ASCII)
+        dset.attrs["index"] = pandas_object.items.map(
+            lambda x: x.strftime("%Y%m%d")).astype('S')
+        maj_ax = [p.encode() if isinstance(p, str) else p \
+            for p in pandas_object.major_axis]
+        min_ax = [p.encode() if isinstance(p, str) else p \
+            for p in pandas_object.minor_axis]
+        dset.attrs["major_axis"] = maj_ax
+        dset.attrs["minor_axis"] = min_ax
 
-        # quantiles
-        q = ln_mix.quantile(perc)
 
-        # store
-        dens.loc[idx,:] = p
-        quant.loc[idx,:] = q
+def hdf_to_pandas(dset):
+    """ Construct pandas object from HDF dataset.
+    Assuming that the dataset is structured correctly, uses data and
+    attributes to retrieve a pandas object. The object returned and the
+    attributes required depend upon the number of dimensions of dset[:] as
+    follows:
+    1D: returns Series, requires "index"
+    2D: returns DataFrame, requires "index" and "columns"
+    3D: returns Panel, requires "index", "major_axis" and "minor_axis"
 
-    return dens, quant
+    Parameters
+    ----------
+    dset : h5py.dataset
+        with data and stored as attributes
+
+    Returns
+    -------
+    res : pandas.Series/DataFrame/Panel
+        with data = dset[:]
+    """
+    # dset = hangar["covariances"]
+    # collect data as numpy.ndarray
+    data = dset[:]
+    # fetch index from attributes
+    idx = pd.to_datetime(dset.attrs["index"], format="%Y%m%d")
+    # determine if Series, DataFrame or Panel (looking at dimensions)
+    if data.ndim == 1:
+        # Series: index only
+        res = pd.Series(data=data,
+        index=idx)
+    elif data.ndim == 2:
+        # DataFrame: index and columns (decode column names if not strings)
+        col = [p.decode() if isinstance(p, bytes) else p \
+            for p in dset.attrs["columns"]]
+
+        res = pd.DataFrame(data=data,
+            index=idx,
+            columns=col)
+
+    elif data.ndim == 3:
+        # Panel: items (=index) and two axes
+        # decode strings if needed
+        maj_ax = [p.decode() if isinstance(p, bytes) else p \
+            for p in dset.attrs["major_axis"]]
+        min_ax = [p.decode() if isinstance(p, bytes) else p \
+            for p in dset.attrs["minor_axis"]]
+
+        res = pd.Panel(data=data,
+            items=idx,
+            major_axis=maj_ax,
+            minor_axis=min_ax)
+
+    return res
+
+def panel_rolling(data, fun, **kwargs):
+    """ Implementation of .rolling(`**kwargs`).apply(`fun`) for Panel
+
+    Note that in order to replicate skipna=True behaviour of pandas built-ins
+    like mean(), sum() etc. one needs to provide `fun` which can skip nans.
+    Use "fun=np.nanmean" and the like to get the desired behaviour.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        of parameters to .rolling method
+    """
+    # data = cormat_panel
+    # kwargs = {"window" : 5}
+    # fun = np.nanmean
+    res = data.copy()
+    # iterate over cross-sectional (with same time index for all) slices
+    # NB: data.loc[:,a,:].columns are the items axis of Panel, so the whole
+    # thing is transposed which is why one needs "axis=1" down there
+    for label in data.major_axis:
+        res.loc[:,label,:] = \
+            res.loc[:,label,:].rolling(axis=1, **kwargs).apply(fun)
+
+    return res
