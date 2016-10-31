@@ -27,7 +27,7 @@ class lognormal_mixture():
         self.wght = wght
 
     def moments(self):
-        """ TODO: finish moment-generating function
+        """ Compute mean and variance of X ~ lnmix
         """
         iE_x = np.exp(self.mu+self.sigma*self.sigma/2)
         iE_x2 = (np.exp(self.sigma**2)-1)*np.exp(2*self.mu+self.sigma**2) + \
@@ -35,10 +35,16 @@ class lognormal_mixture():
         E_x = iE_x.dot(self.wght)
         Var_x = iE_x2.dot(self.wght) - E_x**2
 
-        print(iE_x)
-        print(iE_x2)
         return E_x, Var_x
 
+    def moments_of_log(self):
+        """ Compute mean and variance of ln(X) when X ~ lnmix
+        """
+        iE_x2 = self.sigma**2 + self.mu**2
+        E_x = self.mu.dot(self.wght)
+        Var_x = iE_x2.dot(self.wght) - E_x**2
+
+        return E_x, Var_x
 
     def pdf(self, x):
         """ Compute PDF of mixture of log-normals at points in x
@@ -101,6 +107,16 @@ class lognormal_mixture():
 
     def quantile(self, p):
         """ Compute quantiles of mixture of log-normals
+
+        Parameters
+        ----------
+        p : float or (M,) numpy.ndarray
+            probability at which quantile to be calculated
+
+        Returns
+        -------
+        q : float or (M,) numpy.ndarray
+            of quantiles at probabilities in `p`
         """
         flag = False
         if not (type(p) is np.ndarray):
