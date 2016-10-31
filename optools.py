@@ -9,7 +9,7 @@ import sys
 # import ipdb
 
 # module with global configurations
-import config
+from optools import config
 
 # logging module
 import logging
