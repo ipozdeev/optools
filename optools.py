@@ -5,16 +5,16 @@ from scipy.special import erf
 from scipy.stats import norm
 from scipy.optimize import fsolve, minimize, differential_evolution
 import multiprocessing as mproc
+from ip_econometrics import RegressionModel as regm
 import sys
 # import ipdb
 
 # module with global configurations
-from optools import config
+import config
 
 # logging module
 import logging
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
 
 def aux_fun(x):
     """ run_one_row to use in multiprocessing
@@ -26,6 +26,8 @@ def estimation_wrapper(data, tau, parallel=False):
 
     Allow for parallel and standard (loop) regime. If parallel, uses
     multiprocessing (does not work from IPython).
+
+    TODO: relocate to wrappers
 
     Parameters
     ----------
@@ -469,12 +471,13 @@ def bs_vega(f, K, rf, y, tau, sigma):
 def fast_norm_cdf(x):
     """
     Using error function from scipy.special (o(1) faster)
+    TODO: relocate to misc.py
     """
     return(1/2*(1 + erf(x/np.sqrt(2))))
 
 def run_one_row(idx_row, tau, opt_meth, constraints):
     """ Wrapper around estimate_rnd working on (idx, row) from pandas.iterrows
-
+    TODO: relocate to optools_wrappers.py
     """
     # unpack the tuple
     idx = idx_row[0]
@@ -537,6 +540,7 @@ def run_one_row(idx_row, tau, opt_meth, constraints):
 def optimize_for_mixture_par(x0, K, rf, c_true, f_true, is_iv, W,
     opt_meth, **kwargs):
     """
+    TODO: relocate to wrappers
     """
     if opt_meth == "differential_evolution":
         # redefine bounds - now need one on weight now
@@ -596,3 +600,61 @@ def optimize_for_mixture_par(x0, K, rf, c_true, f_true, is_iv, W,
             format(w[0]))
 
     return x, w
+
+def rnd_nonparametric(y, X, X_pred, rf, tau, is_iv=True, h=None, **kwargs):
+    """
+
+    Parameters
+    ----------
+    X_pred :
+        strikes must be in column 0 and equally spaced
+    **kwargs : dict
+        (if `is_iv` is True) all arguments to `bs_price` except `sigma`
+    """
+    # init model
+    mod = regm.KernelRegression(y0=y, X0=X)
+
+    # use cross_validation if needed, bleach is automatically done
+    if h is None:
+        h = mod.cross_validation(k=10)*5
+    else:
+        # if no cross_validation, need to bleach
+        mod.bleach(z_score=True, add_constant=False, dropna=True)
+
+    # fit curve
+    y_hat = mod.fit(X_pred=X_pred, h=h)
+
+    # from iv to price if needed
+    if is_iv:
+        y_hat = bs_price(rf=rf, tau=tau, sigma=y_hat, **kwargs)
+
+    # differentiate with respect to K ---------------------------------------
+    K_pred = X_pred[1:-1,0]
+    # assumed K_pred are equally spaced, calculate dK
+    dK = K_pred[1]-K_pred[0]
+    # second difference
+    d2C = np.exp(rf*1/12)*(y_hat[2:] - 2*y_hat[1:-1] + y_hat[:-2])/dK**2
+    # get rid of negative values: if after truncation there are negative
+    #    values, redo the estimation with a higher k
+    if (d2C < 0).any():
+        med_K = np.median(K_pred)
+        before_idx = K_pred <= med_K
+        after_idx = K_pred > med_K
+        body_start = np.max(np.where(d2C[before_idx] <= 0))+1
+        body_end = sum(before_idx)+np.max(np.where(d2C[after_idx] > 0))+1
+        # trim
+        d2C[:body_start] = 0
+        d2C[body_end:] = 0
+
+    # check how much we have truncated
+    intgr = np.trapz(d2C, K_pred)
+    if 1-intgr > 1e-04:
+        logger.warning("Density integrates to {:5.4f}".format(intgr))
+
+    # rescale
+    d2C = d2C/intgr
+
+    # result to a DataFrame
+    res = pd.Series(data=d2C, index=K_pred)
+
+    return res

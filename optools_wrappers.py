@@ -1,5 +1,6 @@
 # wrappers
 import pandas as pd
+import optools as op
 import numpy as np
 import lnmix
 import warnings
@@ -213,7 +214,7 @@ def wrapper_implied_co(varAC, varAB, varBC, reverse_sign):
     """
 
     co_v = (varAC - varAB - varBC)/2*(-1 if reverse_sign else 1)
-    co_r = co_v/np.sqrt(varAB*varBC)
+    co_r = co_v/np.sqrt(varAB*varBC)*(1 if reverse_sign else -1)
 
     return co_v, co_r
 
@@ -222,41 +223,129 @@ def wrapper_beta_from_covmat(covmat, wght):
 
     Parameters
     ----------
-    covmat : (N,N) numpy.ndarray or pandas.DataFrame
+    covmat : pandas.DataFrame
         covariance matrix
-    wght : (N,) numpy.ndarray or pandas.Series
+    wght : pandas.Series
         weights of each asset in the linear combination
 
     Returns
     -------
-    B : (N,) numpy.ndarray or pandas.Series
+    B : pandas.Series
         of calculated betas (ordering corresponds to columns of `covmat`)
     """
     # wght = pd.Series(data=np.ones(8), index=covmat.columns)
-    # find rows/columns void of values
-    good_idx = np.isfinite(covmat).any(axis=0)
-    # different indexing if pandas objects or numpy arrays
-    if hasattr(covmat, "columns"):
-        # get rid of columns/rows with no values at all
-        new_covmat = covmat.ix[good_idx,good_idx]
-        new_wght = wght.ix[good_idx]/wght.ix[good_idx].sum()
+    # trim nans in a smart way
+    covmat_trim = covmat.copy()
+    # init count of nans
+    nan_count_total = pd.isnull(covmat_trim).sum().sum()
+    # while there are nans in covmat, remove columns with max number of nans
+    while nan_count_total > 0:
+        # detect rows where number of nans is less than maximum
+        nan_max = pd.isnull(covmat_trim).sum()
+        nan_max_idx = max([(p,q) for q,p in enumerate(nan_max)])[1]
 
-        # on the rest, do the computations
-        numerator = new_covmat.dot(new_wght)
-        denominator = new_wght.dot(new_covmat.dot(new_wght))
-        B = numerator/denominator
+        # nan_max_idx = pd.isnull(covmat_trim).sum() < \
+        #     max(pd.isnull(covmat_trim).sum())
+        # covmat_trim = covmat_trim.ix[nan_max_idx,nan_max_idx]
 
-        # reindex
-        B = B.reindex(covmat.columns)
-    else:
-        B = np.empty(shape=len(wght))*np.nan
-        # get rid of columns/rows with no values at all
-        new_covmat = covmat[good_idx,good_idx]
-        new_wght = wght[good_idx]/wght[good_idx].sum()
+        covmat_trim.drop(covmat_trim.columns[nan_max_idx],axis=0,inplace=True)
+        covmat_trim.drop(covmat_trim.columns[nan_max_idx],axis=1,inplace=True)
 
-        # on the rest, do the computations
-        numerator = new_covmat.dot(new_wght)
-        denominator = new_wght.dot(new_covmat.dot(new_wght))
-        B[good_idx] = numerator/denominator
+        # new count of nans
+        nan_count_total = pd.isnull(covmat_trim).sum().sum()
+
+    # new weight
+    new_wght = wght[covmat_trim.columns]/wght[covmat_trim.columns].sum()
+
+    # do the computations
+    numerator = covmat_trim.dot(new_wght)
+    denominator = new_wght.dot(covmat_trim.dot(new_wght))
+    B = numerator/denominator
+
+    # reindex back
+    B = B.reindex(covmat.columns)
+
+    # # different indexing if pandas objects or numpy arrays
+    # if hasattr(covmat, "columns"):
+    #     # do the computations
+    #     numerator = covmat_trim.dot(new_wght)
+    #     denominator = new_wght.dot(covmat_trim.dot(new_wght))
+    #     B = numerator/denominator
+    #
+    #     # reindex
+    #     B = B.reindex(covmat.columns)
+    # else:
+    #     B = np.empty(shape=len(wght))*np.nan
+    #     # get rid of columns/rows with no values at all
+    #     new_covmat = covmat[good_idx,good_idx]
+    #     new_wght = wght[good_idx]/wght[good_idx].sum()
+    #
+    #     # on the rest, do the computations
+    #     numerator = new_covmat.dot(new_wght)
+    #     denominator = new_wght.dot(new_covmat.dot(new_wght))
+    #     B[good_idx] = numerator/denominator
 
     return B
+
+def wrapper_rnd_nonparametric(day_panel, s, maturity, h=None):
+    """
+
+    Parameters
+    ----------
+    maturity : float
+        in years
+    """
+    rf = day_panel.loc[maturity,:,"rf_base"].mean()
+    maturity = misc.maturity_from_string(maturity)
+
+    # stack everything together ---------------------------------------------
+    df_stacked = pd.DataFrame(columns=["iv", "f", "K", "tau"])
+
+    # within-day loop over maturities
+    for tau_str, df in day_panel.iteritems():
+
+        # get maturity in years
+        tau = misc.maturity_from_string(tau_str)
+
+        # loop over time stamps for each maturity
+        for time_idx, row in df.iterrows():
+            # get deltas and ivs
+            deltas, ivs = op.get_wings(
+                row["rr25d"],row["rr10d"],row["bf25d"],row["bf10d"],row["atm"],
+                row["rf_counter"], tau)
+            # transform deltas to strikes
+            strikes = op.strike_from_delta(delta=deltas,
+                X=s.loc[time_idx], rf=row["rf_base"], y=row["rf_counter"],
+                tau=tau, sigma=ivs, is_call=True)
+            # store everything
+            tmp_df = pd.DataFrame.from_dict(
+                {
+                    "iv" : ivs,
+                    "f" : np.ones(5)*row["f"],
+                    "K" : strikes,
+                    "tau" : np.ones(5)*tau
+                })
+            # merge with df_stacked
+            df_stacked = pd.concat((df_stacked, tmp_df), axis=0,
+                ignore_index=True)
+
+    # collect response and regressors ---------------------------------------
+    y = df_stacked["iv"]
+    X = df_stacked.drop(["iv",], axis=1)
+
+    # prepare values at which predictions to be made
+    # strikes are equally spaced [min(K), max(K)]
+    dK = 1e-05
+    K_pred = np.arange(min(df_stacked["K"]), max(df_stacked["K"]), dK)
+    # forward is mean forward price over that day
+    f_pred = np.ones(len(K_pred))*df_stacked["f"].mean()
+    # maturity
+    tau_pred = np.ones(len(K_pred))*maturity
+    # all together
+    X_pred = np.stack((K_pred, f_pred, tau_pred), axis=1)
+
+    # estimate
+    res = op.rnd_nonparametric(y, X, X_pred, rf, maturity, is_iv=True, h=h,
+        f=f_pred, K=K_pred)
+
+    return res

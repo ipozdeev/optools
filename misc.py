@@ -50,7 +50,6 @@ def pandas_to_hdf(group, pandas_object, dset_name, **kwargs):
         dset.attrs["major_axis"] = maj_ax
         dset.attrs["minor_axis"] = min_ax
 
-
 def hdf_to_pandas(dset):
     """ Construct pandas object from HDF dataset.
     Assuming that the dataset is structured correctly, uses data and
@@ -129,3 +128,16 @@ def panel_rolling(data, fun, **kwargs):
             res.loc[:,label,:].rolling(axis=1, **kwargs).apply(fun)
 
     return res
+
+def maturity_from_string(maturity):
+    """ Convert string maturity e.g. "3W" into float e.g. 3/52.
+    """
+    # if ends with 'W' -> weekly; 'M' -> monthly; 'Y' -> yearly
+    if maturity.endswith('W'):
+        tau = float(maturity[:-1])/52
+    elif maturity.endswith('M'):
+        tau = float(maturity[:-1])/12
+    else:
+        tau = float(maturity[:-1])
+
+    return tau

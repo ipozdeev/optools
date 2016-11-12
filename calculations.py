@@ -1,17 +1,44 @@
-# here be calculations
-import optools as op
-import pandas as pd
 import numpy as np
-import datetime as dt
-import matplotlib.pyplot as plt
-import logging
+import pandas as pd
+import os
 
 usr = "hsg-spezial"
 path = "c:/users/" + usr + "/google drive/" + \
-    "personal/option_implied_betas_project"
+    "personal/option_implied_betas_project/"
+
+import config
+config.init()
+
+# settings --------------------------------------------------------------------
+# contraints: ratio of sigmas <4/3 (only works with opt_meth = "SLSQP")
+C = np.array([
+    [0, 0],
+    [0, 0],
+    [-1, 4/3],
+    [4/3, -1]])
+constraints = {
+    "type" : "ineq",
+    "fun" : lambda x: x.dot(C)}
+# maturities
+tau_in_months = 1
+tau = tau_in_months/12.0
+tau_str = str(tau_in_months)+"m"
+# optimization method
+opt_meth = "SLSQP"
+
+config.init()
+config.cfg_dict["tau"] = tau
+config.cfg_dict["opt_meth"] = opt_meth
+config.cfg_dict["constraints"] = constraints
+# end of settings -------------------------------------------------------------
+
+import optools as op
+import import_data as imp
+# import ipdb
+import logging
 
 # logger settings
-logging.basicConfig(filename=path+"/log/optools_logger.txt",
+logging.basicConfig(filename=path+"log/optools_logger.txt",
     filemode='w',
     format="%(asctime)s || %(levelname)s:%(message)s",
     datefmt="%H:%M:%S")
@@ -19,71 +46,31 @@ logging.basicConfig(filename=path+"/log/optools_logger.txt",
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-# # load existing data
-# filename = "c:/users/hsg-spezial/google drive/" + \
-#     "personal/research_proposal/option_implied_betas/est_res/" + \
-#     "eurchf_11_16_d_perc.csv"
-# ps = pd.read_csv(filename, index_col=0, parse_dates=True)
-#
-# # check if integrates to 1
-# np.trapz(ps.ix[1000,], [float(p) for p in ps.columns])
-#
-# # plot 10th and 90th percentiles
-# ps.plot()
-# plt.show()
-
-# #
-# ps.loc["2012-04":"2013-09"]
-
-# # debug
-# quant.loc["2013-07-22":"2013-08-12"].plot()
-# plt.show()
-#
-# data_for_est.loc["2013-07-25":"2013-08-09"].pct_change().plot()
-# par.loc["2013-07-25":"2013-08-09"]
-#
-# save_this = data_for_est
-# data = data_for_est.loc["2013-07-30":"2013-08-06"]
-
 if __name__ == "__main__":
 
-    data = pd.read_csv(path+"/data/data_for_est.csv", index_col=0,
-        parse_dates=True)
+    # fetch all files with raw data
+    all_files = list(filter(lambda x: x.endswith(".xlsx"),
+        os.listdir(path + "data/raw/")))
 
-    # constraints: ratio of sigmas <4/3
-    C = np.array([
-        [0, 0],
-        [0, 0],
-        [-1, 4/3],
-        [4/3, -1]])
+    files = all_files
+    # # fetch existing estimates to build intersection
+    # x_files = [p[:6] for p in os.listdir(path+"data/estimates/par/")]
+    # files = [p for p in all_files if p[:6] not in x_files]
 
-    # constraints
-    constraints = {
-        "type" : "ineq",
-        "fun" : lambda x: x.dot(C)}
+    for filename in files:
 
-    # support of rnd
-    domain = np.arange(0.8, 1.5, 0.005)
-    # percentiles to calculate
-    perc = np.array([0.1, 0.5, 0.9])
+        # collect data from .xlsx file
+        # logger.info("collecting data for %s" % filename[:6])
+        data_for_est = imp.import_data(
+            data_path=path+"data/raw/",
+            filename=filename,
+            tau_str=tau_str)
 
-    # fetch specific maturity
-    tau = 1/12
-    tau_str = "1m"
-    data_for_est = data[list(data.columns[:7]) + \
-        ["f"+tau_str, "chf"+tau_str, "eur"+tau_str]]
+        # main routine
+        par = \
+            op.estimation_wrapper(data_for_est,
+                tau, parallel=True)
 
-    # rename
-    data_for_est.columns = list(data.columns[:7]) + ["f", "rf", "y"]
-
-    # from forward points to forward
-    data_for_est.loc[:,"f"] = data_for_est["s"]+data_for_est["f"]/10000
-
-    dens, par, perc = \
-        op.estimation_wrapper(data_for_est.loc["2013-07-30":"2013-08-06"],
-            tau, constraints, domain, perc)
-
-    # # save
-    # par.to_csv(path + "/calc/res/eurchf_11_16_d_par.csv")
-    # dens.to_csv(path + "/calc/res/eurchf_11_16_d_dens.csv")
-    # quant.to_csv(path + "/calc/res/eurchf_11_16_d_perc.csv")
+        # save
+        par.to_csv(path + "data/estimates/par/" + filename[:6] + \
+            "_" + tau_str + "_" + opt_meth[:4].lower() + "_par.csv")
