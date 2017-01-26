@@ -2,7 +2,7 @@
 import pandas as pd
 import optools as op
 import numpy as np
-import lnmix
+from optools import lnmix
 import warnings
 import misc
 

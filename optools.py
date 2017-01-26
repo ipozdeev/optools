@@ -4,13 +4,16 @@ import numpy as np
 from scipy.special import erf
 from scipy.stats import norm
 from scipy.optimize import fsolve, minimize, differential_evolution
+from scipy import interpolate, integrate
+from statsmodels.nonparametric.kernel_regression import KernelReg
 import multiprocessing as mproc
-from ip_econometrics import RegressionModel as regm
 import sys
+
+from ip_econometrics import RegressionModel as regm
 # import ipdb
 
 # module with global configurations
-import config
+from optools import config
 
 # logging module
 import logging
@@ -20,6 +23,130 @@ def aux_fun(x):
     """ run_one_row to use in multiprocessing
     """
     return(run_one_row(x, **config.cfg_dict))
+
+def mfiv_wrapper(iv_surf, f, rf, tau):
+    """
+    Returns
+    -------
+    res : scalar
+        mfiv, not annualized, in (fractions of 1)^2
+    """
+    # min and max strikes
+    K_min = np.min(iv_surf["K"])
+    K_max = np.max(iv_surf["K"])
+
+    # interpolate ivs
+    iv_interp = interpolate_iv(iv_surf, method="spline")
+
+    # extend beyond limits: constant fashion
+    dK = np.diff(iv_interp.index).mean()
+    new_idx_left = np.arange(0.66*f, K_min, dK)
+    new_idx_right = np.arange(K_max+dK, f*1.5, dK)
+    new_idx = np.concatenate((new_idx_left, iv_interp.index, new_idx_right))
+    iv_interp = iv_interp.reindex(index=new_idx)
+    iv_interp.fillna(method="ffill", inplace=True)
+    iv_interp.fillna(method="bfill", inplace=True)
+
+    # back to prices
+    C_interp = bs_price(f, iv_interp.index, rf, tau, iv_interp.values)
+
+    # integrate
+    y = (C_interp*np.exp(rf*tau) - \
+        np.maximum(np.zeros(shape=(len(C_interp),)), f-new_idx))/\
+            (new_idx*new_idx)
+    res = integrate.simps(y, new_idx)*2
+
+    return res
+
+def interpolate_iv(iv_surf, method="spline", X_pred=None):
+    """ Interpolate iv surface.
+    Spline interpolation is only supported for 2D data: iv ~ strikes.
+    Kernel regression interpolation is supported for 2D and 3D data:
+    iv ~ strikes + tau.
+    Parameters
+    ----------
+    iv_surf : pandas.DataFrame
+        with columns "K" for strikes, "iv" for implied volatilities, and
+        (optional) "tau" for maturity, in years.
+    method : str
+        "spline" or "kernel".
+    X_pred : pandas.DataFrame
+        with the same columns as `iv_surf` except for "iv".
+
+    Returns
+    -------
+    rse : pd.Series
+        indexed with new strikes and containing interpolated iv
+    """
+    # sort values: needed for spline to work properly
+    iv_surf = iv_surf.sort_values(by="K", axis=0)
+
+    # response is iv
+    endog = iv_surf["iv"].values
+
+    # if K_pred missing, use linspace over range of provided K;
+    # also, everything should be lists (for kernel regression to work)
+    if X_pred is None:
+        X_pred = [np.linspace(np.min(iv_surf["K"]), np.max(iv_surf["K"]),
+            np.ceil(np.ptp(iv_surf["K"])/0.01)), ]
+    else:
+        # turn columns of df into list elements
+        X_pred = list(X_pred.values.T)
+
+    # var_type for kernel regression: see KernelReg for details
+    var_type = ['c',] + (['u',] if iv_surf.shape[1] > 2 else [])
+
+    # regressors, as a list
+    exog = list(iv_surf.drop(["iv",], axis=1).values.T)
+
+    # if iv_surf.shape[1] > 2:
+    #     if tau is None:
+    #         raise NameError("Maturity of interpolated series not provided")
+    #     else:
+    #         # make list out of provided maturity
+    #         exog += [iv_surf["tau"].values, ]
+    #         X_pred += [np.array([tau,]*len(K_pred)),]
+    #     var_type += ['u',]
+
+    # method
+    if method == "spline":
+        if iv_surf.shape[1] > 2:
+            raise NotImplementedError("Not possible")
+            # # convert to ndarrays
+            # exog_df = pd.DataFrame(index=np.unique(exog[0]),
+            #     columns=np.unique(exog[1]), dtype=np.float)*np.nan
+            # for p in range(len(exog[0])):
+            #     exog_df.loc[exog[0][p], exog[1][p]] = endog[p]
+            #
+            # endog_mat = exog_df.values
+            #
+            # x, y = np.meshgrid(exog_df.index, exog_df.columns, indexing="ij")
+            # tck = interpolate.bisplrep(x, y, endog_mat, s=0)
+            #
+            # print(X_pred[0])
+            # # xnew, ynew = np.meshgrid(X_pred[0], X_pred[1], indexing="ij")
+            # # print(xnew)
+            # # print(ynew)
+            # znew = interpolate.bisplev(X_pred[0], [tau,], tck)
+            # print(znew)
+        else:
+            # estimate iv ~ strikes
+            tck = interpolate.splrep(exog[0], endog, s=0)
+            # predict
+            znew = interpolate.splev(X_pred[0], tck, der=0)
+
+    elif method == "kernel":
+        # estimate endog must be a list of one elt
+        kr = KernelReg(endog=[endog,], exog=exog, var_type=var_type,
+            reg_type="ll")
+        # fit
+        znew, _ = kr.fit(data_predict=X_pred)
+
+    # return, squeeze jsut in case
+    res = pd.Series(index=X_pred[0], data=znew.squeeze())
+
+    return res
+
 
 def estimation_wrapper(data, tau, parallel=False):
     """ Loop over rows in `data` to estimate RND of the underlying.
@@ -74,6 +201,7 @@ def estimation_wrapper(data, tau, parallel=False):
         for idx_row in data.iterrows():
             # estimate rnd for this index; unpack the dict in config to get
             # hold of constraints and bounds
+            # pdb.set_trace()
             idx, res = run_one_row(idx_row, **config.cfg_dict)
             # store
             par.loc[idx,:] = res
@@ -524,7 +652,7 @@ def run_one_row(idx_row, tau, opt_meth, constraints):
     logger.debug(("Vegas:\n"+"%.2f "*len(np.diag(W))+"\n") %
         tuple(np.diag(W)))
 
-    # estimate rnd! TODO: constraints are hardcoded now, relocate somewhere
+    # estimate rnd!
     res = estimate_rnd(
         ivs*np.sqrt(tau),
         row["f"],
