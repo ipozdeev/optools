@@ -9,7 +9,7 @@ from statsmodels.nonparametric.kernel_regression import KernelReg
 import multiprocessing as mproc
 import sys
 
-from ip_econometrics import RegressionModel as regm
+# from ip_econometrics import RegressionModel as regm
 # import ipdb
 
 # module with global configurations
@@ -24,7 +24,7 @@ def aux_fun(x):
     """
     return(run_one_row(x, **config.cfg_dict))
 
-def mfiv_wrapper(iv_surf, f, rf, tau):
+def mfiv_wrapper(iv_surf, f, rf, tau, method):
     """
     Returns
     -------
@@ -36,7 +36,7 @@ def mfiv_wrapper(iv_surf, f, rf, tau):
     K_max = np.max(iv_surf["K"])
 
     # interpolate ivs
-    iv_interp = interpolate_iv(iv_surf, method="spline")
+    iv_interp = interpolate_iv(iv_surf, method=method)
 
     # extend beyond limits: constant fashion
     dK = np.diff(iv_interp.index).mean()
@@ -147,6 +147,72 @@ def interpolate_iv(iv_surf, method="spline", X_pred=None):
 
     return res
 
+def mfiskew_wrapper(iv_surf, f, rf, tau, S, method):
+    """
+    """
+    # min and max strikes
+    K_min = np.min(iv_surf["K"])
+    K_max = np.max(iv_surf["K"])
+
+    # interpolate ivs
+    iv_interp = interpolate_iv(iv_surf, method=method,
+        X_pred=pd.DataFrame(data=np.linspace(K_min,K_max,50)))
+
+    # extend beyond limits: constant fashion
+    dK = np.diff(iv_interp.index).mean()
+    new_idx_left = np.arange(0.66*f, K_min, dK)
+    new_idx_right = np.arange(K_max+dK, f*1.5, dK)
+    new_idx = np.concatenate((new_idx_left, iv_interp.index, new_idx_right))
+    iv_interp = iv_interp.reindex(index=new_idx)
+    iv_interp.fillna(method="ffill", inplace=True)
+    iv_interp.fillna(method="bfill", inplace=True)
+
+    # back to prices
+    C_interp = bs_price(f, iv_interp.index, rf, tau, iv_interp.values)
+
+    # put-call parity: C for for K > S and P for K <= S
+    K_P = iv_interp.index[iv_interp.index <= S]
+    P = call_to_put(
+        C = C_interp[iv_interp.index <= S],
+        K = K_P,
+        f = f,
+        rf = rf,
+        tau = tau)
+
+    K_C = iv_interp.index[iv_interp.index > S]
+    C = iv_interp.ix[iv_interp.index > S]
+
+    # cubic contract
+    yC = (6*np.log(K_C/S) - 3*np.log(K_C/S)**2)/K_C**2 * C
+    yP = (6*np.log(S/K_P) + 3*np.log(S/K_P)**2)/K_P**2 * P
+    W = integrate.simps(yC, K_C) - integrate.simps(yP, K_P)
+
+    # quadratic contract
+    V = mfiv_wrapper(iv_surf, f, rf, tau, method)
+
+    # quartic contract
+    yC = (12*np.log(K_C/S)**2 - 4*np.log(K_C/S)**3) * C
+    yP = (12*np.log(S/K_P)**2 + 4*np.log(S/K_P)**3) * P
+    X = integrate.simps(yC, K_C) + integrate.simps(yP, K_P)
+
+    # mu
+    mu = np.exp(rf*tau) - 1 - np.exp(rf*tau)/2*V - np.exp(rf*tau)/6*W -\
+        np.exp(rf*tau)/24*X
+
+    # all together
+    mfiskew = (np.exp(rf*tau)*W - 3*mu*np.exp(rf*tau)*V + 2*mu**3)/\
+        (np.exp(rf*tau)*V - mu**2)**(3/2)
+
+    return mfiskew
+
+def call_to_put(C, K, f, rf, tau):
+    """ Put-call parity relation
+
+    Vectorized for C, K
+    """
+    P = C - f*np.exp(-rf*tau) + K*np.exp(-rf*tau)
+
+    return P
 
 def estimation_wrapper(data, tau, parallel=False):
     """ Loop over rows in `data` to estimate RND of the underlying.
@@ -729,60 +795,60 @@ def optimize_for_mixture_par(x0, K, rf, c_true, f_true, is_iv, W,
 
     return x, w
 
-def rnd_nonparametric(y, X, X_pred, rf, tau, is_iv=True, h=None, **kwargs):
-    """
-
-    Parameters
-    ----------
-    X_pred :
-        strikes must be in column 0 and equally spaced
-    **kwargs : dict
-        (if `is_iv` is True) all arguments to `bs_price` except `sigma`
-    """
-    # init model
-    mod = regm.KernelRegression(y0=y, X0=X)
-
-    # use cross_validation if needed, bleach is automatically done
-    if h is None:
-        h = mod.cross_validation(k=10)*5
-    else:
-        # if no cross_validation, need to bleach
-        mod.bleach(z_score=True, add_constant=False, dropna=True)
-
-    # fit curve
-    y_hat = mod.fit(X_pred=X_pred, h=h)
-
-    # from iv to price if needed
-    if is_iv:
-        y_hat = bs_price(rf=rf, tau=tau, sigma=y_hat, **kwargs)
-
-    # differentiate with respect to K ---------------------------------------
-    K_pred = X_pred[1:-1,0]
-    # assumed K_pred are equally spaced, calculate dK
-    dK = K_pred[1]-K_pred[0]
-    # second difference
-    d2C = np.exp(rf*1/12)*(y_hat[2:] - 2*y_hat[1:-1] + y_hat[:-2])/dK**2
-    # get rid of negative values: if after truncation there are negative
-    #    values, redo the estimation with a higher k
-    if (d2C < 0).any():
-        med_K = np.median(K_pred)
-        before_idx = K_pred <= med_K
-        after_idx = K_pred > med_K
-        body_start = np.max(np.where(d2C[before_idx] <= 0))+1
-        body_end = sum(before_idx)+np.max(np.where(d2C[after_idx] > 0))+1
-        # trim
-        d2C[:body_start] = 0
-        d2C[body_end:] = 0
-
-    # check how much we have truncated
-    intgr = np.trapz(d2C, K_pred)
-    if 1-intgr > 1e-04:
-        logger.warning("Density integrates to {:5.4f}".format(intgr))
-
-    # rescale
-    d2C = d2C/intgr
-
-    # result to a DataFrame
-    res = pd.Series(data=d2C, index=K_pred)
-
-    return res
+# def rnd_nonparametric(y, X, X_pred, rf, tau, is_iv=True, h=None, **kwargs):
+#     """
+#
+#     Parameters
+#     ----------
+#     X_pred :
+#         strikes must be in column 0 and equally spaced
+#     **kwargs : dict
+#         (if `is_iv` is True) all arguments to `bs_price` except `sigma`
+#     """
+#     # init model
+#     mod = regm.KernelRegression(y0=y, X0=X)
+#
+#     # use cross_validation if needed, bleach is automatically done
+#     if h is None:
+#         h = mod.cross_validation(k=10)*5
+#     else:
+#         # if no cross_validation, need to bleach
+#         mod.bleach(z_score=True, add_constant=False, dropna=True)
+#
+#     # fit curve
+#     y_hat = mod.fit(X_pred=X_pred, h=h)
+#
+#     # from iv to price if needed
+#     if is_iv:
+#         y_hat = bs_price(rf=rf, tau=tau, sigma=y_hat, **kwargs)
+#
+#     # differentiate with respect to K ---------------------------------------
+#     K_pred = X_pred[1:-1,0]
+#     # assumed K_pred are equally spaced, calculate dK
+#     dK = K_pred[1]-K_pred[0]
+#     # second difference
+#     d2C = np.exp(rf*1/12)*(y_hat[2:] - 2*y_hat[1:-1] + y_hat[:-2])/dK**2
+#     # get rid of negative values: if after truncation there are negative
+#     #    values, redo the estimation with a higher k
+#     if (d2C < 0).any():
+#         med_K = np.median(K_pred)
+#         before_idx = K_pred <= med_K
+#         after_idx = K_pred > med_K
+#         body_start = np.max(np.where(d2C[before_idx] <= 0))+1
+#         body_end = sum(before_idx)+np.max(np.where(d2C[after_idx] > 0))+1
+#         # trim
+#         d2C[:body_start] = 0
+#         d2C[body_end:] = 0
+#
+#     # check how much we have truncated
+#     intgr = np.trapz(d2C, K_pred)
+#     if 1-intgr > 1e-04:
+#         logger.warning("Density integrates to {:5.4f}".format(intgr))
+#
+#     # rescale
+#     d2C = d2C/intgr
+#
+#     # result to a DataFrame
+#     res = pd.Series(data=d2C, index=K_pred)
+#
+#     return res

@@ -285,7 +285,7 @@ def wrapper_beta_from_covmat(covmat, wght):
     #     denominator = new_wght.dot(new_covmat.dot(new_wght))
     #     B[good_idx] = numerator/denominator
 
-    return B
+    return B, denominator
 
 def wrapper_rnd_nonparametric(day_panel, s, maturity, h=None):
     """
