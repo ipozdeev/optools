@@ -24,7 +24,7 @@ def aux_fun(x):
     """
     return(run_one_row(x, **config.cfg_dict))
 
-def mfiv_wrapper(iv_surf, f, rf, tau):
+def mfiv_wrapper(iv_surf, f, rf, tau, method="spline"):
     """
     Returns
     -------
@@ -36,7 +36,7 @@ def mfiv_wrapper(iv_surf, f, rf, tau):
     K_max = np.max(iv_surf["K"])
 
     # interpolate ivs
-    iv_interp = interpolate_iv(iv_surf, method="spline")
+    iv_interp = interpolate_iv(iv_surf, method=method)
 
     # extend beyond limits: constant fashion
     dK = np.diff(iv_interp.index).mean()
