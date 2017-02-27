@@ -147,7 +147,7 @@ def interpolate_iv(iv_surf, method="spline", X_pred=None):
 
     return res
 
-def mfiskew_wrapper(iv_surf, f, rf, tau, S, method):
+def mfiskew_wrapper(iv_surf, f, rf, tau, S, method="spline"):
     """
     """
     # min and max strikes
@@ -180,7 +180,7 @@ def mfiskew_wrapper(iv_surf, f, rf, tau, S, method):
         tau = tau)
 
     K_C = iv_interp.index[iv_interp.index > S]
-    C = iv_interp.ix[iv_interp.index > S]
+    C = C_interp[iv_interp.index > S]
 
     # cubic contract
     yC = (6*np.log(K_C/S) - 3*np.log(K_C/S)**2)/K_C**2 * C
@@ -191,8 +191,8 @@ def mfiskew_wrapper(iv_surf, f, rf, tau, S, method):
     V = mfiv_wrapper(iv_surf, f, rf, tau, method)
 
     # quartic contract
-    yC = (12*np.log(K_C/S)**2 - 4*np.log(K_C/S)**3) * C
-    yP = (12*np.log(S/K_P)**2 + 4*np.log(S/K_P)**3) * P
+    yC = (12*np.log(K_C/S)**2 - 4*np.log(K_C/S)**3)/K_C**2 * C
+    yP = (12*np.log(S/K_P)**2 + 4*np.log(S/K_P)**3)/K_P**2 * P
     X = integrate.simps(yC, K_C) + integrate.simps(yP, K_P)
 
     # mu

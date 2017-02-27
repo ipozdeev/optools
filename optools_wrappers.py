@@ -4,7 +4,7 @@ import optools as op
 import numpy as np
 from optools import lnmix
 import warnings
-import misc
+# import misc
 
 def wrapper_density_from_par(par, domain=None):
     """ Calculate density over `domain`.
@@ -185,7 +185,7 @@ def wrapper_implied_co_mat(variances):
     return covmat, cormat
 
 def wrapper_implied_co(varAC, varAB, varBC, reverse_sign):
-    """ Calculate covaraince and correlation implied by three variances.
+    """ Calculate covariance and correlation implied by three variances.
 
     Builds on var[AC] = var[AB] + var[BC] + 2*cov[AB,BC] if
     AC = AB + BC to extract covariance and correlation between AB and BC.
@@ -287,65 +287,65 @@ def wrapper_beta_from_covmat(covmat, wght):
 
     return B, denominator
 
-def wrapper_rnd_nonparametric(day_panel, s, maturity, h=None):
-    """
-
-    Parameters
-    ----------
-    maturity : float
-        in years
-    """
-    rf = day_panel.loc[maturity,:,"rf_base"].mean()
-    maturity = misc.maturity_from_string(maturity)
-
-    # stack everything together ---------------------------------------------
-    df_stacked = pd.DataFrame(columns=["iv", "f", "K", "tau"])
-
-    # within-day loop over maturities
-    for tau_str, df in day_panel.iteritems():
-
-        # get maturity in years
-        tau = misc.maturity_from_string(tau_str)
-
-        # loop over time stamps for each maturity
-        for time_idx, row in df.iterrows():
-            # get deltas and ivs
-            deltas, ivs = op.get_wings(
-                row["rr25d"],row["rr10d"],row["bf25d"],row["bf10d"],row["atm"],
-                row["rf_counter"], tau)
-            # transform deltas to strikes
-            strikes = op.strike_from_delta(delta=deltas,
-                X=s.loc[time_idx], rf=row["rf_base"], y=row["rf_counter"],
-                tau=tau, sigma=ivs, is_call=True)
-            # store everything
-            tmp_df = pd.DataFrame.from_dict(
-                {
-                    "iv" : ivs,
-                    "f" : np.ones(5)*row["f"],
-                    "K" : strikes,
-                    "tau" : np.ones(5)*tau
-                })
-            # merge with df_stacked
-            df_stacked = pd.concat((df_stacked, tmp_df), axis=0,
-                ignore_index=True)
-
-    # collect response and regressors ---------------------------------------
-    y = df_stacked["iv"]
-    X = df_stacked.drop(["iv",], axis=1)
-
-    # prepare values at which predictions to be made
-    # strikes are equally spaced [min(K), max(K)]
-    dK = 1e-05
-    K_pred = np.arange(min(df_stacked["K"]), max(df_stacked["K"]), dK)
-    # forward is mean forward price over that day
-    f_pred = np.ones(len(K_pred))*df_stacked["f"].mean()
-    # maturity
-    tau_pred = np.ones(len(K_pred))*maturity
-    # all together
-    X_pred = np.stack((K_pred, f_pred, tau_pred), axis=1)
-
-    # estimate
-    res = op.rnd_nonparametric(y, X, X_pred, rf, maturity, is_iv=True, h=h,
-        f=f_pred, K=K_pred)
-
-    return res
+# def wrapper_rnd_nonparametric(day_panel, s, maturity, h=None):
+#     """
+#
+#     Parameters
+#     ----------
+#     maturity : float
+#         in years
+#     """
+#     rf = day_panel.loc[maturity,:,"rf_base"].mean()
+#     maturity = misc.maturity_from_string(maturity)
+#
+#     # stack everything together ---------------------------------------------
+#     df_stacked = pd.DataFrame(columns=["iv", "f", "K", "tau"])
+#
+#     # within-day loop over maturities
+#     for tau_str, df in day_panel.iteritems():
+#
+#         # get maturity in years
+#         tau = misc.maturity_from_string(tau_str)
+#
+#         # loop over time stamps for each maturity
+#         for time_idx, row in df.iterrows():
+#             # get deltas and ivs
+#             deltas, ivs = op.get_wings(
+#                 row["rr25d"],row["rr10d"],row["bf25d"],row["bf10d"],row["atm"],
+#                 row["rf_counter"], tau)
+#             # transform deltas to strikes
+#             strikes = op.strike_from_delta(delta=deltas,
+#                 X=s.loc[time_idx], rf=row["rf_base"], y=row["rf_counter"],
+#                 tau=tau, sigma=ivs, is_call=True)
+#             # store everything
+#             tmp_df = pd.DataFrame.from_dict(
+#                 {
+#                     "iv" : ivs,
+#                     "f" : np.ones(5)*row["f"],
+#                     "K" : strikes,
+#                     "tau" : np.ones(5)*tau
+#                 })
+#             # merge with df_stacked
+#             df_stacked = pd.concat((df_stacked, tmp_df), axis=0,
+#                 ignore_index=True)
+#
+#     # collect response and regressors ---------------------------------------
+#     y = df_stacked["iv"]
+#     X = df_stacked.drop(["iv",], axis=1)
+#
+#     # prepare values at which predictions to be made
+#     # strikes are equally spaced [min(K), max(K)]
+#     dK = 1e-05
+#     K_pred = np.arange(min(df_stacked["K"]), max(df_stacked["K"]), dK)
+#     # forward is mean forward price over that day
+#     f_pred = np.ones(len(K_pred))*df_stacked["f"].mean()
+#     # maturity
+#     tau_pred = np.ones(len(K_pred))*maturity
+#     # all together
+#     X_pred = np.stack((K_pred, f_pred, tau_pred), axis=1)
+#
+#     # estimate
+#     res = op.rnd_nonparametric(y, X, X_pred, rf, maturity, is_iv=True, h=h,
+#         f=f_pred, K=K_pred)
+#
+#     return res

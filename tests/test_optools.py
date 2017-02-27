@@ -16,7 +16,7 @@ logging.basicConfig(filename=path+"/log/optools_test_logger.txt",
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-from optools import optools as op
+from optools import optools as op, optools_wrappers as opwraps
 
 # class TestSimpleFormulas(unittest.TestCase):
 #     """
@@ -256,7 +256,76 @@ class TestMfiv(unittest.TestCase):
             columns=["K","iv"])
         res = op.mfiv_wrapper(iv_surf, self.f, self.rf, self.tau)
 
-        self.assertAlmostEqual(np.sqrt(res/self.tau), self.iv.mean(), places=2)
+        self.assertAlmostEqual(np.sqrt(res/self.tau), self.iv.mean(), places=1)
+
+    def test_mfskew_wrapper(self):
+        """
+        """
+        iv_surf = pd.DataFrame(data=np.vstack((self.K,self.iv)).T,
+            columns=["K","iv"])
+        res = op.mfiskew_wrapper(iv_surf, self.f, self.rf, self.tau, self.S0)
+        self.assertAlmostEqual(res, 0, places=1)
+
+class TestOptoolsWrappers(unittest.TestCase):
+    """
+    """
+    def setUp(self):
+        """
+        """
+        sigma_p, sigma_q = 0.1, 0.3
+        rho_pq = -0.5
+        w_p = 0.2
+        w_q = 1-w_p
+        s2_m = w_p**2*sigma_p**2 + w_q**2*sigma_q**2 + \
+            2*w_p*w_q*sigma_p*sigma_q*rho_pq
+        cov_pm = w_p*sigma_p**2 + w_q*sigma_p*sigma_q*rho_pq
+        beta_pm = cov_pm/s2_m
+
+        covmat = np.array([
+            [sigma_p**2, sigma_p*sigma_q*rho_pq],
+            [sigma_p*sigma_q*rho_pq, sigma_q**2]])
+
+        # for implied_co_mat
+        X1 = pd.Series(data=np.random.normal(size=(10000,)))
+        X2 = pd.Series(data=np.random.normal(size=(10000,)))\
+            *np.sqrt(1-rho_pq**2) + X1*rho_pq
+        cadusd = X1*sigma_p
+        usdchf = X2*sigma_q
+        cadchf = cadusd + usdchf
+        variances = pd.concat((cadusd,cadchf,usdchf), axis=1).var()
+        variances.index = ["cadusd", "cadchf", "usdchf"]
+
+        self.variances = variances
+
+        self.beta_pm = beta_pm
+        self.covmat = pd.DataFrame(data=covmat,
+            columns=["p","q"],
+            index=["p","q"])
+        self.wght = pd.Series(data=np.array([w_p, w_q]), index=["p","q"])
+        self.s2_m = s2_m
+        self.rho_pq = rho_pq
+        self.sigma_p = sigma_p
+        self.sigma_q = sigma_q
+
+    def test_wrapper_implied_co_mat(self):
+        """
+        """
+        vcv, crm = opwraps.wrapper_implied_co_mat(self.variances)
+
+        self.assertAlmostEqual(crm.iloc[1,0], -1*self.rho_pq, 1)
+        self.assertAlmostEqual(vcv.iloc[0,0], self.sigma_p**2, 1)
+        self.assertAlmostEqual(vcv.iloc[1,0],
+            -1*self.sigma_p*self.sigma_q*self.rho_pq, 1)
+
+    def test_wrapper_beta_from_covmat(self):
+        """
+        """
+        beta, s2_m = opwraps.wrapper_beta_from_covmat(self.covmat, self.wght)
+        beta = beta["p"]
+        s2_m = s2_m
+
+        self.assertAlmostEqual(beta, self.beta_pm)
+        self.assertAlmostEqual(s2_m, self.s2_m)
 
 if __name__ == "__main__":
     unittest.main()
