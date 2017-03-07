@@ -290,6 +290,8 @@ def wrapper_beta_from_covmat(covmat, wght):
 def wrapper_beta_of_portfolio(covmat, wght_p, wght_m):
     """ Estimates beta of a number of assets w.r.t. their linear combination.
 
+    TODO: fix this description
+    
     Parameters
     ----------
     covmat : pandas.DataFrame
