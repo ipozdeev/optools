@@ -287,6 +287,54 @@ def wrapper_beta_from_covmat(covmat, wght):
 
     return B, denominator
 
+def wrapper_beta_of_portfolio(covmat, wght_p, wght_m):
+    """ Estimates beta of a number of assets w.r.t. their linear combination.
+
+    Parameters
+    ----------
+    covmat : pandas.DataFrame
+        covariance matrix
+    wght : pandas.Series
+        weights of each asset in the linear combination
+
+    Returns
+    -------
+    B : pandas.Series
+        of calculated betas (ordering corresponds to columns of `covmat`)
+    """
+    # wght = pd.Series(data=np.ones(8), index=covmat.columns)
+    # trim nans in a smart way
+    covmat_trim = covmat.copy()
+    # init count of nans
+    nan_count_total = pd.isnull(covmat_trim).sum().sum()
+    # while there are nans in covmat, remove columns with max number of nans
+    while nan_count_total > 0:
+        # detect rows where number of nans is less than maximum
+        nan_max = pd.isnull(covmat_trim).sum()
+        nan_max_idx = max([(p,q) for q,p in enumerate(nan_max)])[1]
+
+        # nan_max_idx = pd.isnull(covmat_trim).sum() < \
+        #     max(pd.isnull(covmat_trim).sum())
+        # covmat_trim = covmat_trim.ix[nan_max_idx,nan_max_idx]
+
+        covmat_trim.drop(covmat_trim.columns[nan_max_idx],axis=0,inplace=True)
+        covmat_trim.drop(covmat_trim.columns[nan_max_idx],axis=1,inplace=True)
+
+        # new count of nans
+        nan_count_total = pd.isnull(covmat_trim).sum().sum()
+
+    # new weight
+    new_wght_m = wght_m[covmat_trim.columns]/wght_m[covmat_trim.columns].sum()
+    new_wght_p = wght_p.reindex(index=covmat_trim.columns,fill_value=0.0)
+    new_wght_p /= new_wght_p.sum()
+
+    # do the computations
+    numerator = new_wght_p.dot(covmat_trim.dot(new_wght_m))
+    denominator = new_wght_m.dot(covmat_trim.dot(new_wght_m))
+    B = numerator/denominator
+
+    return B
+
 # def wrapper_rnd_nonparametric(day_panel, s, maturity, h=None):
 #     """
 #
