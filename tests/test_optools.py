@@ -16,7 +16,7 @@ logging.basicConfig(filename=path+"/log/optools_test_logger.txt",
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-from optools import optools as op, optools_wrappers as opwraps
+from optools import optools_func as op, optools_wrappers as opwraps
 
 # class TestSimpleFormulas(unittest.TestCase):
 #     """
@@ -254,17 +254,18 @@ class TestMfiv(unittest.TestCase):
         """
         iv_surf = pd.DataFrame(data=np.vstack((self.K,self.iv)).T,
             columns=["K","iv"])
-        res = op.mfiv_wrapper(iv_surf, self.f, self.rf, self.tau)
+        res = op.mfiv_wrapper(iv_surf, self.f, self.rf, self.tau,
+            version="sarno")
 
-        self.assertAlmostEqual(np.sqrt(res/self.tau), self.iv.mean(), places=1)
+        self.assertAlmostEqual(np.sqrt(res/self.tau), self.iv.mean(), places=3)
 
-    def test_mfskew_wrapper(self):
-        """
-        """
-        iv_surf = pd.DataFrame(data=np.vstack((self.K,self.iv)).T,
-            columns=["K","iv"])
-        res = op.mfiskew_wrapper(iv_surf, self.f, self.rf, self.tau, self.S0)
-        self.assertAlmostEqual(res, 0, places=1)
+    # def test_mfskew_wrapper(self):
+    #     """
+    #     """
+    #     iv_surf = pd.DataFrame(data=np.vstack((self.K,self.iv)).T,
+    #         columns=["K","iv"])
+    #     res = op.mfiskew_wrapper(iv_surf, self.f, self.rf, self.tau, self.S0)
+    #     self.assertAlmostEqual(res, 0, places=1)
 
 class TestOptoolsWrappers(unittest.TestCase):
     """

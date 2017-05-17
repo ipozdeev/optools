@@ -24,7 +24,8 @@ def aux_fun(x):
     """
     return(run_one_row(x, **config.cfg_dict))
 
-def mfiv_wrapper(iv_surf, f, rf, tau, method="spline"):
+def mfiv_wrapper(iv_surf, f, rf, tau, smooth_method="spline",
+    version="jiang_tian"):
     """
     Returns
     -------
@@ -36,7 +37,7 @@ def mfiv_wrapper(iv_surf, f, rf, tau, method="spline"):
     K_max = np.max(iv_surf["K"])
 
     # interpolate ivs
-    iv_interp = interpolate_iv(iv_surf, method=method)
+    iv_interp = interpolate_iv(iv_surf, method=smooth_method)
 
     # extend beyond limits: constant fashion
     dK = np.diff(iv_interp.index).mean()
@@ -48,13 +49,37 @@ def mfiv_wrapper(iv_surf, f, rf, tau, method="spline"):
     iv_interp.fillna(method="bfill", inplace=True)
 
     # back to prices
-    C_interp = bs_price(f, iv_interp.index, rf, tau, iv_interp.values)
+    C_interp = bs_price(f, np.array(iv_interp.index), rf, tau,
+        iv_interp.values)
 
-    # integrate
-    y = (C_interp*np.exp(rf*tau) - \
-        np.maximum(np.zeros(shape=(len(C_interp),)), f-new_idx))/\
+    # ipdb.set_trace()
+
+    # version
+    if version == "jiang_tian":
+        # integrate
+        y = (C_interp*np.exp(rf*tau) - \
+            np.maximum(np.zeros(shape=(len(C_interp),)), f-new_idx))/\
             (new_idx*new_idx)
-    res = integrate.simps(y, new_idx)*2
+        res = integrate.simps(y, new_idx)*2
+
+    elif version == "sarno":
+        # part of prices to puts
+        P_interp = call_to_put(
+            C = C_interp,
+            K = new_idx,
+            f = f,
+            rf = rf,
+            tau = tau)
+
+        K_C = new_idx[new_idx >= f]
+        C = C_interp[new_idx >= f]
+        K_P = new_idx[new_idx < f]
+        P = P_interp[new_idx < f]
+
+        res = integrate.simps(P/K_P**2, K_P) + integrate.simps(C/K_C**2, K_C)
+        # res *= (2/tau)*np.exp(rf*tau)
+        res *= (2)*np.exp(rf*tau)
+
 
     return res
 
@@ -88,7 +113,7 @@ def interpolate_iv(iv_surf, method="spline", X_pred=None):
     # also, everything should be lists (for kernel regression to work)
     if X_pred is None:
         X_pred = [np.linspace(np.min(iv_surf["K"]), np.max(iv_surf["K"]),
-            np.ceil(np.ptp(iv_surf["K"])/0.01)), ]
+            np.ceil(np.ptp(iv_surf["K"])/0.005)), ]
     else:
         # turn columns of df into list elements
         X_pred = list(X_pred.values.T)
