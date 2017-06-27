@@ -218,7 +218,7 @@ def wrapper_implied_co(varAC, varAB, varBC, reverse_sign):
 
     return co_v, co_r
 
-def wrapper_beta_from_covmat(covmat, wght):
+def wrapper_beta_from_covmat(covmat, wght, zero_cost=False):
     """ Estimates beta of a number of assets w.r.t. their linear combination.
 
     Parameters
@@ -227,6 +227,8 @@ def wrapper_beta_from_covmat(covmat, wght):
         covariance matrix
     wght : pandas.Series
         weights of each asset in the linear combination
+    zero_cost : boolean
+        True if the portfolio defined with `wght` is zero-cost (sum(wght)=0)
 
     Returns
     -------
@@ -255,7 +257,10 @@ def wrapper_beta_from_covmat(covmat, wght):
         nan_count_total = pd.isnull(covmat_trim).sum().sum()
 
     # new weight
-    new_wght = wght[covmat_trim.columns]/wght[covmat_trim.columns].sum()
+    if zero_cost:
+        new_wght = wght[covmat_trim.columns] - wght[covmat_trim.columns].sum()
+    else:
+        new_wght = wght[covmat_trim.columns]/wght[covmat_trim.columns].sum()
 
     # do the computations
     numerator = covmat_trim.dot(new_wght)
@@ -291,7 +296,7 @@ def wrapper_beta_of_portfolio(covmat, wght_p, wght_m):
     """ Estimates beta of a number of assets w.r.t. their linear combination.
 
     TODO: fix this description
-    
+
     Parameters
     ----------
     covmat : pandas.DataFrame
