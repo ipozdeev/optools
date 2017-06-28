@@ -610,6 +610,11 @@ def rnd_nonparametric(y, X, X_pred, rf, tau, is_iv=True, h=None, **kwargs):
         strikes must be in column 0 and equally spaced
     **kwargs : dict
         (if `is_iv` is True) all arguments to `bs_price` except `sigma`
+
+    Returns
+    -------
+    res : pandas.DataFrame
+        "rnd" is density, "iv" is fitted iv's
     """
     # init model
     mod = regm.KernelRegression(y0=y, X0=X)
@@ -623,6 +628,9 @@ def rnd_nonparametric(y, X, X_pred, rf, tau, is_iv=True, h=None, **kwargs):
 
     # fit curve
     y_hat = mod.fit(X_pred=X_pred, h=h)
+
+    # save for later
+    iv = y_hat
 
     # from iv to price if needed
     if is_iv:
@@ -655,6 +663,7 @@ def rnd_nonparametric(y, X, X_pred, rf, tau, is_iv=True, h=None, **kwargs):
     d2C = d2C/intgr
 
     # result to a DataFrame
-    res = pd.Series(data=d2C, index=K_pred)
+    res = pd.DataFrame(data=d2C, index=K_pred, columns=["rnd",])
+    res["iv"] = iv[1:-1]
 
     return res
