@@ -14,7 +14,7 @@ from foolbox import portfolio_construction as poco, RegressionModel as regm
 from foolbox.finance import into_currency
 from foolbox.data_mgmt import set_credentials as setc
 
-# import ipdb
+import ipdb
 
 class ImpliedBetaEnvironment():
     """
@@ -26,7 +26,7 @@ class ImpliedBetaEnvironment():
         self.tau_str = tau_str
         self.tau = float(tau_str[:-1])/12.0
         self.path_to_raw = path_to_raw
-        self.path_to_data = path_to_data,
+        self.path_to_data = path_to_data
         self.path_to_spot = setc.gdrive_path("research_data/fx_and_events/")
         self.opt_meth = opt_meth
         self.ccur = ccur
@@ -151,6 +151,75 @@ class ImpliedBetaEnvironment():
             as hangar:
                 hangar.put("variances", mfiv)
 
+    def get_mfis(self):
+        """
+        """
+        # interest rates
+        ir_name = import_rf_bloomi(
+            self.path_to_raw+"ir_bloomi.xlsx", self.tau_str)
+
+        # fetch all files with raw data
+        files = list(filter(lambda x: x.endswith("deriv.xlsx"),
+            os.listdir(self.path_to_raw)))
+
+        mfis = pd.DataFrame()
+
+        for filename in files:
+            ipdb.set_trace()
+            # collect data from .xlsx file
+            # filename = files[17]
+            # filename = 'usdjpy_fx_deriv.xlsx'
+            data_for_est = import_data(
+                data_path=self.path_to_raw,
+                filename=filename,
+                tau_str=self.tau_str,
+                ir_name=ir_name)
+
+            if data_for_est.empty:
+                continue
+
+            this_mfis = pd.Series(index=data_for_est.index)
+            for idx, row in data_for_est.iterrows():
+                # idx, row = list(data_for_est.iterrows())[-528]
+                # fetch wings
+                deltas, ivs = op.get_wings(
+                    row["rr25d"],
+                    row["rr10d"],
+                    row["bf25d"],
+                    row["bf10d"],
+                    row["atm"],
+                    row["y"],
+                    self.tau)
+
+                # to strikes
+                K = op.strike_from_delta(
+                    deltas,
+                    row["s"],
+                    row["rf"],
+                    row["y"],
+                    self.tau,
+                    ivs,
+                    True)
+
+                # concat to pandas object
+                vol_surf = pd.DataFrame(
+                    data=np.vstack((K,ivs)).T,
+                    columns=["K","iv"])
+
+                # transform & integrate
+                res = op.mfiskew_wrapper(
+                    vol_surf, row["f"], row["rf"], self.tau, row["s"],
+                    method="spline")
+
+                this_mfis[idx] = res
+
+            mfis[filename[:6]] = this_mfis
+
+        self._store_to_hdf({"skewness": mfis})
+
+        with pd.HDFStore(path_out+"mfis_"+self.tau_str+".h5", mode='a') \
+            as hangar:
+                hangar.put("skewness", mfis)
 
     def get_covariances(self):
         """
@@ -684,7 +753,7 @@ if __name__ == "__main__":
 
     path_to_raw = path+"data/raw/longer/"
     path_to_data = path+"data/estimates/"
-    tau_str = "1m"
+    tau_str = "3m"
     opt_meth = "mfiv"
     exclude_cur = ["dkk","nok","sek"]
 
@@ -697,6 +766,7 @@ if __name__ == "__main__":
         exclude_cur=exclude_cur)
 
     # BImpl.get_mfiv()
+    BImpl.get_mfis()
 
     # exclude_cur = []
     # ipdb.set_trace()
