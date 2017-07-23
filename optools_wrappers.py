@@ -111,22 +111,24 @@ def wrapper_variance_of_logx(par):
 
     return Var_x
 
-def wrapper_implied_co_mat(variances):
+def wrapper_implied_co_mat(variances, ccur):
     """ Calculate covariance and correlation of currencies w.r.t a common one.
 
     Parameters
     ----------
     variances : pandas.Series
         of variances, labeled with currency pairs
+    ccur : str
+        counter currency
     """
     # all pairs
     pairs_all = list(variances.index)
     # pairs not containing "usd"
-    pairs_nonusd = [p for p in pairs_all if "usd" not in p]
+    pairs_nonusd = [p for p in pairs_all if ccur not in p]
     # pairs containing "usd"
-    pairs_usd = [p for p in pairs_all if "usd" in p]
+    pairs_usd = [p for p in pairs_all if ccur in p]
     # currencies except usd
-    currencies = [p.replace("usd", '') for p in pairs_usd]
+    currencies = [p.replace(ccur, '') for p in pairs_usd]
     N = len(currencies)
 
     covmat = pd.DataFrame(
@@ -158,7 +160,7 @@ def wrapper_implied_co_mat(variances):
             # find "yyyusd" or "usdyyy"
             yyy_vs_usd = next(p for p in pairs_usd if yyy in p)
             # if "usd" parts are not aligned
-            reverse_sign = xxx_vs_usd.find("usd") == yyy_vs_usd.find("usd")
+            reverse_sign = xxx_vs_usd.find(ccur) == yyy_vs_usd.find(ccur)
             # calculate covariance
             cov_q, cor_q = wrapper_implied_co(
                 varAC=variances[xxx_vs_yyy],
