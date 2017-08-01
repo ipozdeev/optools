@@ -14,7 +14,7 @@ from foolbox import portfolio_construction as poco, RegressionModel as regm
 from foolbox.finance import into_currency
 from foolbox.data_mgmt import set_credentials as setc
 
-import ipdb
+# import ipdb
 
 class ImpliedBetaEnvironment():
     """
@@ -165,7 +165,7 @@ class ImpliedBetaEnvironment():
         mfis = pd.DataFrame()
 
         for filename in files:
-            ipdb.set_trace()
+            # ipdb.set_trace()
             # collect data from .xlsx file
             # filename = files[17]
             # filename = 'usdjpy_fx_deriv.xlsx'
@@ -217,7 +217,7 @@ class ImpliedBetaEnvironment():
 
         self._store_to_hdf({"skewness": mfis})
 
-        with pd.HDFStore(path_out+"mfis_"+self.tau_str+".h5", mode='a') \
+        with pd.HDFStore(self.path_to_data+"mfis_"+self.tau_str+".h5", mode='a') \
             as hangar:
                 hangar.put("skewness", mfis)
 
@@ -299,7 +299,7 @@ class ImpliedBetaEnvironment():
         wght_bis = wght_bis[cur_names]
 
         # make sure weights sum up to 1
-        wght_bis = wght_bis.divide(wght_bis.sum(axis=1), axis=0)
+        wght_bis = wght_bis.divide(np.abs(wght_bis.sum(axis=1)), axis=0)
 
         # equal weights are... equal! ---------------------------------------
         wght_eq = pd.Series(np.ones(len(cur_names)), index=cur_names)
@@ -753,16 +753,16 @@ if __name__ == "__main__":
 
     path_to_raw = path+"data/raw/longer/"
     path_to_data = path+"data/estimates/"
-    tau_str = "3m"
+    tau_str = "1m"
     opt_meth = "mfiv"
-    exclude_cur = ["dkk","nok","sek"]
+    exclude_cur = ["dkk",]
 
     BImpl = ImpliedBetaEnvironment(
         path_to_raw=path_to_raw,
         path_to_data=path_to_data,
         tau_str=tau_str,
         opt_meth=opt_meth,
-        ccur="chf",
+        ccur="usd",
         exclude_cur=exclude_cur)
 
     # BImpl.get_mfiv()
@@ -815,6 +815,18 @@ if __name__ == "__main__":
     s_d = data_d["spot_ret"]
     s_m = s_d.resample('M').sum()
 
+    # rv_m = s_d.resample('M').std()
+    # rv_d = s_d.rolling(252*5).std()
+    # rv_m = rv_d.resample('M').last()
+    # hml = poco.get_hml(rx_m, rv_m.shift(1), 5)
+    # hml.cumsum().plot()
+    #
+    # bs = get_dynamic_betas(s_d, s_d.mean(axis=1), "grouped_by",
+    #     by=pd.TimeGrouper(freq='M'))
+    # bs_m = bs.resample('M').last()
+    # hml = poco.get_hml(rx_m, bs.shift(1), 5)
+    # hml.cumsum().plot()
+
     # realized betas
     BImpl.get_actual_betas(s_d, s_m, exclude_cur=exclude_cur)
 
@@ -858,3 +870,39 @@ if __name__ == "__main__":
     #
     # b_impl_d = b_impl_full_bis
     # f, ax = plt.subplots()
+
+#     with pd.HDFStore(path_to_data+"data_vs_usd_1m_mfiv9_curs.h5", mode="r") \
+#         as hangar:
+#         mfis = hangar["skewness"]
+#
+# curs = [p for p in mfis.columns if "usd" in p]
+# mfis = mfis.loc[:,curs]
+# curs = [re.sub("usd", '', p) for p in curs]
+#
+# %matplotlib inline
+# mfis.plot()
+# which_usd_first = [p for p in curs if p[:3] == "usd"]
+# mfis.loc[:,which_usd_first] *= -1
+#
+# mfis.columns = [re.sub("usd", '', p) for p in mfis.columns]
+#
+# with open(path_to_spot+"data_wmr_dev_m.p", mode="rb") as hangar:
+#     fx = pickle.load(hangar)
+#
+# rx_m = fx["rx"]
+#
+# with open(path_to_spot+"data_wmr_dev_d.p", mode="rb") as hangar:
+#     fx_d = pickle.load(hangar)
+#
+# s_d = fx_d["spot_ret"]
+# from scipy import stats
+# roll_sk = s_d.resample('M').apply(stats.skew).loc["2008-08":]
+#
+# drop_curs = ["dkk","nok","sek"]
+#
+# yeah = poco.get_hml(rx_m.drop(drop_curs, axis=1).loc["2008-09":],
+#     (mfis.resample('M').mean()-roll_sk).shift(1), n_portf=3)
+#
+# yeah.cumsum().plot()
+# from foolbox.api import taf
+# taf.descriptives(yeah.to_frame())
