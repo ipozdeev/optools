@@ -1,4 +1,5 @@
 import pandas as pd
+from pandas.tseries.resample import TimeGrouper
 import numpy as np
 from os import listdir
 import pickle
@@ -8,6 +9,8 @@ from foolbox.data_mgmt import set_credentials as set_cred
 from optools import optools_func as op
 from optools import optools_wrappers as wrap
 from optools.import_data import *
+
+from optools.factormodels import FactorModelEnvironment
 
 class OIBPaper():
     """
@@ -127,7 +130,7 @@ class OIBPaper():
         """
         """
         with pd.HDFStore(self.hangar_name, mode='r') as hngr:
-                res = hngr[what]
+            res = hngr[what]
 
         if (s_dt is None) and (e_dt is None):
             return res
@@ -256,6 +259,41 @@ class OIBPaper():
 
         return B
 
+    def calculate_olsbetas(self, assets, wght=None, align=True,
+        method="simple", **kwargs):
+        """
+        """
+        vcv = self.mficov
+
+        if wght is None:
+            wght = pd.DataFrame(1.0,
+                index=vcv.items,
+                columns=vcv.minor_axis)
+
+        if isinstance(wght, pd.Series):
+            wght = pd.DataFrame(
+                data=np.array([wght.values, ]*len(vcv.items)),
+                index=vcv.items,
+                columns=vcv.minor_axis)
+
+        if align:
+            assets = assets.loc[:, vcv.minor_axis]
+            wght = wght.loc[:, vcv.minor_axis]
+
+        # construct factor environment
+        factor_env = FactorModelEnvironment.from_weights(assets, wght)
+
+        # calculate betas
+        B = factor_env.get_betas(method=method, **kwargs)
+
+        # store
+        self.to_hdf({
+            ("olsbetas/" + method): B,
+            ("dol_idx/" + method): factor_env.factors.squeeze(),
+            ("wght/" + method): wght})
+
+        return B
+
     @staticmethod
     def trim_covmat(covmat):
         """
@@ -286,11 +324,14 @@ class OIBPaper():
         """
         """
         my_filter = lambda x: x.ewm(alpha=wght).mean()
+        res = x.resample("M").apply(my_filter).groupby(
+            TimeGrouper(freq='M', level=-1)).last()
 
-        return x.resample("M").apply(my_filter).resample("M").last()
+        return res
 
 if __name__ == "__main__":
 
+    from foolbox.api import *
     import ipdb
     oibp = OIBPaper(tau_str="1m", ccur="usd", x_curs=["sek", "nok", "dkk"])
     # ipdb.set_trace()
@@ -300,4 +341,31 @@ if __name__ == "__main__":
         .drop("usd", axis="major_axis")
     oibp.to_hdf({"mficov": mficov})
     mficov.isnull().sum(axis="items")
-    B = oibp.calculate_mfibetas(trim_vcv=True)
+    B = oibp.calculate_mfibetas(trim_vcv=False, exclude_self=True)
+
+    B = oibp.from_hdf("mfibetas/eq")
+
+    with open(data_path + "data_wmr_dev_m.p", mode="rb") as hangar:
+        data_m = pickle.load(hangar)
+
+    rx = data_m["rx"]
+
+    with open(data_path + "data_wmr_dev_d.p", mode="rb") as hangar:
+        data_d = pickle.load(hangar)
+
+    s_d = data_d["spot_ret"]
+
+    B_m = oibp.smooth_to_monthly(B, 0.9)
+    B_m = B_m.fillna(method="ffill")
+
+    rx = rx.loc[B_m.index, B_m.columns]
+
+    flb = poco.get_hml(rx, B_m.shift(1), n_portf=3).rename("flb")
+    car = poco.get_carry("data_wmr_dev_m", key_name="rx", n_portf=3).hml\
+        .rename("carry")
+
+    pd.concat((flb, car), axis=1).dropna().cumsum().plot()
+
+    pd.concat((flb, car), axis=1).corr()
+
+    B_ols = oibp.calculate_olsbetas(s_d)
