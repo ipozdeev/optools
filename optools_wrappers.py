@@ -220,7 +220,7 @@ def wrapper_implied_co(varAC, varAB, varBC, reverse_sign):
 
     return co_v, co_r
 
-def wrapper_beta_from_covmat(covmat, wght, zero_cost=False):
+def wrapper_beta_from_covmat(covmat, wght, exclude_self=False):
     """ Estimates beta of a number of assets w.r.t. their linear combination.
 
     Parameters
@@ -238,61 +238,49 @@ def wrapper_beta_from_covmat(covmat, wght, zero_cost=False):
         of calculated betas (ordering corresponds to columns of `covmat`)
     """
     # wght = pd.Series(data=np.ones(8), index=covmat.columns)
-    # trim nans in a smart way
-    covmat_trim = covmat.copy()
-    # init count of nans
-    nan_count_total = pd.isnull(covmat_trim).sum().sum()
-    # while there are nans in covmat, remove columns with max number of nans
-    while nan_count_total > 0:
-        # detect rows where number of nans is less than maximum
-        nan_max = pd.isnull(covmat_trim).sum()
-        nan_max_idx = max([(p,q) for q,p in enumerate(nan_max)])[1]
-
-        # nan_max_idx = pd.isnull(covmat_trim).sum() < \
-        #     max(pd.isnull(covmat_trim).sum())
-        # covmat_trim = covmat_trim.ix[nan_max_idx,nan_max_idx]
-
-        covmat_trim.drop(covmat_trim.columns[nan_max_idx],axis=0,inplace=True)
-        covmat_trim.drop(covmat_trim.columns[nan_max_idx],axis=1,inplace=True)
-
-        # new count of nans
-        nan_count_total = pd.isnull(covmat_trim).sum().sum()
-
-    # new weight
-    if zero_cost:
-        new_wght = wght[covmat_trim.columns] - wght[covmat_trim.columns].sum()
-    else:
-        new_wght = wght[covmat_trim.columns]/wght[covmat_trim.columns].sum()
+    # # new weight
+    # if zero_cost:
+    #     new_wght = wght[covmat_trim.columns] - wght[covmat_trim.columns].sum()
+    # else:
+    #     new_wght = wght[covmat_trim.columns]/wght[covmat_trim.columns].sum()
 
     # do the computations
-    numerator = covmat_trim.dot(new_wght)
-    denominator = new_wght.dot(covmat_trim.dot(new_wght))
-    B = numerator/denominator
+    if exclude_self:
+        B = pd.Series(index=wght.index)
+        for c in wght.index:
+            tmp_wght = wght.copy()
+            tmp_wght.loc[c] = 0.0
+            tmp_wght = normalize_weights(tmp_wght)
+            this_num = covmat.dot(tmp_wght)
+            denominator = tmp_wght.dot(covmat.dot(tmp_wght))
+            B.loc[c] = this_num.loc[c]/denominator
+    else:
+        numerator = covmat.dot(wght)
+        denominator = wght.dot(covmat.dot(wght))
+        B = numerator/denominator
 
     # reindex back
     B = B.reindex(covmat.columns)
 
-    # # different indexing if pandas objects or numpy arrays
-    # if hasattr(covmat, "columns"):
-    #     # do the computations
-    #     numerator = covmat_trim.dot(new_wght)
-    #     denominator = new_wght.dot(covmat_trim.dot(new_wght))
-    #     B = numerator/denominator
-    #
-    #     # reindex
-    #     B = B.reindex(covmat.columns)
-    # else:
-    #     B = np.empty(shape=len(wght))*np.nan
-    #     # get rid of columns/rows with no values at all
-    #     new_covmat = covmat[good_idx,good_idx]
-    #     new_wght = wght[good_idx]/wght[good_idx].sum()
-    #
-    #     # on the rest, do the computations
-    #     numerator = new_covmat.dot(new_wght)
-    #     denominator = new_wght.dot(new_covmat.dot(new_wght))
-    #     B[good_idx] = numerator/denominator
-
     return B, denominator
+
+def normalize_weights(wght):
+    """
+    """
+    if (wght == 0).all():
+        res = wght
+    if (wght < 0).any() & (wght > 0).any():
+        short_leg = wght.where(wght < 0)
+        long_leg = wght.where(wght >= 0)
+
+        short_leg = short_leg / np.abs(short_leg).sum()
+        long_leg = long_leg / np.abs(long_leg).sum()
+
+        res = short_leg.fillna(long_leg)
+    else:
+        res = wght / np.abs(wght).sum()
+
+    return res
 
 def wrapper_beta_of_portfolio(covmat, wght_p, wght_m):
     """ Estimates beta of a number of assets w.r.t. their linear combination.
