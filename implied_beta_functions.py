@@ -269,7 +269,7 @@ class ImpliedBetaEnvironment():
         hangar.root.covariances._v_attrs.excluded_cur = self.exclude_cur
         hangar.close()
 
-    def get_implied_betas(self, wght_bis=None):
+    def get_implied_betas(self, wght_bis=None, exclude_self=False):
         """
         """
         # fetch covariances
@@ -321,10 +321,10 @@ class ImpliedBetaEnvironment():
 
             b_bis, dol_s2_bis = \
                 wrap.wrapper_beta_from_covmat(covmat=vcv.loc[idx],
-                wght=wght_bis.loc[idx,:])
+                wght=wght_bis.loc[idx,:], exclude_self=exclude_self)
             b_eq, dol_s2_eq =\
                 wrap.wrapper_beta_from_covmat(covmat=vcv.loc[idx],
-                wght=wght_eq)
+                wght=wght_eq, exclude_self=exclude_self)
             # ipdb.set_trace()
 
             # save
@@ -755,7 +755,7 @@ if __name__ == "__main__":
     path_to_data = path+"data/estimates/"
     tau_str = "1m"
     opt_meth = "mfiv"
-    exclude_cur = ["dkk",]
+    exclude_cur = ["dkk", "sek", "nok"]
 
     BImpl = ImpliedBetaEnvironment(
         path_to_raw=path_to_raw,
@@ -770,7 +770,7 @@ if __name__ == "__main__":
 
     # exclude_cur = []
     # ipdb.set_trace()
-    BImpl.get_covariances(exclude_cur=exclude_cur, ccur="chf")
+    BImpl.get_covariances()
     # (BImpl._fetch_from_hdf("covariances").apply(np.linalg.det,axis="items") <\
     #     0).count()
 
@@ -795,8 +795,9 @@ if __name__ == "__main__":
     wght_bis = wght_bis.divide(wght_bis.sum(axis=1), axis=0)
     wght_bis = wght_bis.reindex(index=cv.items, method="ffill").ffill()
 
-    BImpl.get_implied_betas(wght_bis=wght_bis)
-    # BImpl._fetch_from_hdf("bis/b_impl")
+    BImpl.get_implied_betas(wght_bis=None, exclude_self=True)
+    BImpl._fetch_from_hdf("eq/b_impl").describe()
+    BImpl._fetch_from_hdf("eq/b_impl").rolling(252).mean().plot()
 
     # returns data ----------------------------------------------------------
     # weight of currencies in the carry portfolios
