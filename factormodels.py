@@ -40,25 +40,33 @@ class FactorModelEnvironment():
         return res
 
     @classmethod
-    def from_weights(cls, assets, weights=None):
+    def from_weights(cls, assets, weights=None, exclude_self=False):
         """
         """
         if weights is None:
             # rowsums
             weights = assets.notnull().astype(float)
 
-        # # if exclude_self
-        # if exclude_self:
-        #     factors = [
-        #         cls.construct_factor(
-        #             assets=assets,
-        #             weights=weights.drop(c, axis=1)).rename(c)
-        #         for c in assets.columns]
-        #     factors = pd.concat(factors, axis=1)
+        # if exclude_self
+        if exclude_self:
+            factors = [
+                construct_factor(
+                    assets=assets,
+                    weights=weights.drop(c, axis=1)).rename(c)
+                for c in assets.columns]
+            factors = pd.concat(factors, axis=1)
 
-        factors = construct_factor(assets, weights).to_frame("factor")
+            # one environment for each asset
+            res = {
+                k: cls(assets=assets[k], factors=factors[k].rename("factor")) \
+                for k in assets.columns}
 
-        return cls(assets=assets, factors=factors)
+        else:
+            # else as usual
+            factors = construct_factor(assets, weights).to_frame("factor")
+            res = cls(assets=assets, factors=factors)
+
+        return res
 
 def construct_factor(assets, weights):
     """

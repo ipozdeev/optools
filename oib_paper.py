@@ -260,7 +260,7 @@ class OIBPaper():
         return B
 
     def calculate_olsbetas(self, assets, wght=None, align=True,
-        method="simple", **kwargs):
+        method="simple", exclude_self=False, **kwargs):
         """
         """
         vcv = self.mficov
@@ -281,15 +281,24 @@ class OIBPaper():
             wght = wght.loc[:, vcv.minor_axis]
 
         # construct factor environment
-        factor_env = FactorModelEnvironment.from_weights(assets, wght)
+        factor_env = FactorModelEnvironment.from_weights(assets, wght,
+            exclude_self=exclude_self)
 
-        # calculate betas
-        B = factor_env.get_betas(method=method, **kwargs)
+        if exclude_self:
+            B = {k: v.get_betas(method=method, **kwargs).loc[:, "factor"]\
+                .rename(k) for k, v in factor_env.items()}
+            B = pd.DataFrame.from_dict(B)
+            F = {k: v.factors for k, v in factor_env.items()}
+            F = pd.DataFrame(F)
+        else:
+            # calculate betas
+            B = factor_env.get_betas(method=method, **kwargs)
+            F = factor_env.factors.squeeze()
 
         # store
         self.to_hdf({
             ("olsbetas/" + method): B,
-            ("dol_idx/" + method): factor_env.factors.squeeze(),
+            ("dol_idx/" + method): F,
             ("wght/" + method): wght})
 
         return B
@@ -332,7 +341,7 @@ class OIBPaper():
 if __name__ == "__main__":
 
     from foolbox.api import *
-    import ipdb
+    # import ipdb
     oibp = OIBPaper(tau_str="1m", ccur="usd", x_curs=["sek", "nok", "dkk"])
     # ipdb.set_trace()
     mfiv = oibp.mfiv
@@ -343,25 +352,25 @@ if __name__ == "__main__":
     mficov.isnull().sum(axis="items")
     B = oibp.calculate_mfibetas(trim_vcv=False, exclude_self=True)
 
-    B = oibp.from_hdf("mfibetas/eq")
+    B_impl = oibp.from_hdf("mfibetas/eq")
 
-    with open(data_path + "data_wmr_dev_m.p", mode="rb") as hangar:
+    with open(data_path + "data_dev_m.p", mode="rb") as hangar:
         data_m = pickle.load(hangar)
 
     rx = data_m["rx"]
 
-    with open(data_path + "data_wmr_dev_d.p", mode="rb") as hangar:
+    with open(data_path + "data_dev_d.p", mode="rb") as hangar:
         data_d = pickle.load(hangar)
 
     s_d = data_d["spot_ret"]
 
-    B_m = oibp.smooth_to_monthly(B, 0.9)
+    B_m = oibp.smooth_to_monthly(B_impl, 0.9)
     B_m = B_m.fillna(method="ffill")
 
     rx = rx.loc[B_m.index, B_m.columns]
 
     flb = poco.get_hml(rx, B_m.shift(1), n_portf=3).rename("flb")
-    car = poco.get_carry("data_wmr_dev_m", key_name="rx", n_portf=3).hml\
+    car = poco.get_carry("data_dev_m", key_name="rx", n_portf=3).hml\
         .rename("carry")
 
     pd.concat((flb, car), axis=1).dropna().loc["2008-08":].cumsum().plot()
@@ -377,3 +386,21 @@ if __name__ == "__main__":
         .rename("carry")
 
     B_m.dropna()
+
+    from foolbox.linear_models import DynamicOLS
+
+    # ipdb.set_trace()
+    B = oibp.calculate_olsbetas(assets=s_d, method="rolling",
+        window=252, exclude_self=True)
+
+    B_m = B.resample('M').last()
+
+    flb = poco.get_hml(rx, B_m.shift(1), n_portf=3).rename("flb")
+    pd.concat((car, flb), axis=1).cumsum().plot()
+    pd.concat((car, flb), axis=1).loc["2010-06":].corr()
+
+    taf.descriptives(pd.concat((car, flb), axis=1), scale=12)
+
+    f = s_d.loc[:, oibp.mficov.minor_axis].mean(axis=1)
+    mod = DynamicOLS(s_d.loc[:, "jpy"], f)
+    mod.fit(method="rolling", window=120).tail()
