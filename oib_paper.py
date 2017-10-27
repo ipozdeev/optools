@@ -267,14 +267,14 @@ class OIBPaper():
 
         if wght is None:
             wght = pd.DataFrame(1.0,
-                index=vcv.items,
-                columns=vcv.minor_axis)
+                index=assets.index,
+                columns=assets.columns)
 
         if isinstance(wght, pd.Series):
             wght = pd.DataFrame(
-                data=np.array([wght.values, ]*len(vcv.items)),
-                index=vcv.items,
-                columns=vcv.minor_axis)
+                data=np.array([wght.values, ]*assets.shape[0]),
+                index=assets.index,
+                columns=assets.columns)
 
         if align:
             assets = assets.loc[:, vcv.minor_axis]
@@ -364,8 +364,16 @@ if __name__ == "__main__":
     car = poco.get_carry("data_wmr_dev_m", key_name="rx", n_portf=3).hml\
         .rename("carry")
 
-    pd.concat((flb, car), axis=1).dropna().cumsum().plot()
+    pd.concat((flb, car), axis=1).dropna().loc["2008-08":].cumsum().plot()
 
-    pd.concat((flb, car), axis=1).corr()
+    pd.concat((flb, car), axis=1).loc["2008-08":].corr()
 
-    B_ols = oibp.calculate_olsbetas(s_d)
+    B_ols = oibp.calculate_olsbetas(assets=s_d, align=True,
+        method="expanding", min_periods=252)
+
+    B_m = B_ols.loc["factor", :, :].resample('M').last()
+    flb = poco.get_hml(rx, B_m.shift(1), n_portf=3).rename("flb")
+    car = poco.get_carry("data_wmr_dev_m", key_name="rx", n_portf=3).hml\
+        .rename("carry")
+
+    B_m.dropna()
