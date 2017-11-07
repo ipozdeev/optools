@@ -30,6 +30,7 @@ def parse_imp_exp_data():
             sheetname=["imp", "exp"], index_col=0, skiprows=2, header=None)
         for k in this_spr.keys():
             this_spr[k].columns = colnames
+            this_spr[k] = this_spr[k].resample('M').last()
 
         all_data[iso] = this_spr
 

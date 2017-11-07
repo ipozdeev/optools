@@ -5,6 +5,7 @@ from os import listdir
 import pickle
 
 from foolbox.data_mgmt import set_credentials as set_cred
+from foolbox.linear_models import PureOls
 
 from optools import optools_func as op
 from optools import optools_wrappers as wrap
@@ -338,22 +339,55 @@ class OIBPaper():
 
         return res
 
+    def table_predict_betas(self, b_real, b_impl=None, both=False):
+        """
+        b_real = B_real.loc[:, B_impl.columns]
+        b_impl = oibp.smooth_to_monthly(B_impl, 0.9)
+        """
+        res_coef = dict()
+        res_tstat = dict()
+        res_r2 = pd.Series(index=b_real.columns)
+
+        for c in b_real.columns:
+            # define y
+            y = b_real.loc[:, c].rename("y")
+
+            # define X conditional on input
+            if (b_impl is not None) & both:
+                X = pd.concat((
+                    b_real.loc[:, c].shift(1).rename("self"),
+                    b_impl.loc[:, c].shift(1).rename("impl")), axis=1)
+            elif (b_impl is None) and (not both):
+                X = b_real.loc[:, c].shift(1).rename("self")
+            elif (b_impl is not None) and (not both):
+                X = b_impl.loc[:, c].shift(1).rename("impl")
+            else:
+                raise ValueError("Impossibru!")
+
+            # model + estimate
+            this_mod = PureOls(y0=y, X0=X, add_constant=True)
+            this_diag = this_mod.get_diagnostics(HAC=True)
+
+            # store output
+            res_coef[c] = this_diag.loc["coef", :]
+            res_tstat[c] = this_diag.loc["tstat", :]
+            res_r2.loc[c] = this_diag.ix["adj r2", 0]
+
+        res_coef = pd.DataFrame.from_dict(res_coef)
+        res_tstat = pd.DataFrame.from_dict(res_tstat)
+
+        return (res_coef, res_tstat, res_r2)
+
 if __name__ == "__main__":
 
     from foolbox.api import *
-    # import ipdb
-    oibp = OIBPaper(tau_str="1m", ccur="usd", x_curs=["sek", "nok", "dkk"])
-    # ipdb.set_trace()
-    mfiv = oibp.mfiv
-    mficov = oibp.mficov
-    mficov = mficov.drop("usd", axis="minor_axis")\
-        .drop("usd", axis="major_axis")
-    oibp.to_hdf({"mficov": mficov})
-    mficov.isnull().sum(axis="items")
-    B = oibp.calculate_mfibetas(trim_vcv=False, exclude_self=True)
 
-    B_impl = oibp.from_hdf("mfibetas/eq")
+    # parameters ------------------------------------------------------------
+    tau_str = "1m"
+    ccur = "usd"
+    x_curs = ["sek", "nok", "dkk"]
 
+    # data ------------------------------------------------------------------
     with open(data_path + "data_dev_m.p", mode="rb") as hangar:
         data_m = pickle.load(hangar)
 
@@ -364,16 +398,57 @@ if __name__ == "__main__":
 
     s_d = data_d["spot_ret"]
 
-    B_m = oibp.smooth_to_monthly(B_impl, 0.9)
-    B_m = B_m.fillna(method="ffill")
+    # instance --------------------------------------------------------------
+    oibp = OIBPaper(tau_str=tau_str, ccur=ccur, x_curs=x_curs)
 
-    rx = rx.loc[B_m.index, B_m.columns]
+    # calculations ----------------------------------------------------------
+    # mfiv = oibp.mfiv
 
-    flb = poco.get_hml(rx, B_m.shift(1), n_portf=3).rename("flb")
-    car = poco.get_carry("data_dev_m", key_name="rx", n_portf=3).hml\
-        .rename("carry")
+    # covariances
+    # mficov = oibp.calculate_mficov()
 
-    pd.concat((flb, car), axis=1).dropna().loc["2008-08":].cumsum().plot()
+    # mfi betas
+    # B_impl = oibp.calculate_mfibetas(trim_vcv=False, exclude_self=True)
+    B_impl = oibp.from_hdf("mfibetas/eq")
+    B_impl_m = oibp.smooth_to_monthly(B_impl, 0.9).fillna(method="ffill")
+
+    # ols betas
+    B_real = oibp.calculate_olsbetas(assets=s_d,
+        align=False, wght=None, exclude_self=True,
+        method="grouped_by", by=TimeGrouper('M'))
+    B_real_m = oibp.from_hdf("olsbetas/grouped_by")
+
+    lol, wut, waf = oibp.table_predict_betas(b_real=B_real_m, b_impl=None,
+        both=False)
+    waf.copy()
+
+    lol = pd.concat((
+        B_impl_m.loc[:, "aud"].shift(1).rename("impl"),
+        B_real_m.loc[:, "aud"].rename("real"),
+        B_real_m.loc[:, "aud"].shift(1).rename("real_lag")), axis=1)
+    lol = lol.dropna()
+
+    res = sm.OLS(endog=lol["real"], exog=sm.add_constant(lol["impl"])).fit()
+    res.params
+    res.rsquared_adj
+
+    PureOls(y0=B_real_m["aud"].rename("real"),
+        X0=B_impl_m.loc[:, "aud"].shift(1).rename("impl"),
+        add_constant=True).get_diagnostics(HAC=True)
+
+    lol.to_clipboard()
+
+
+
+    # predict realized betas
+
+    flb = poco.get_hml(rx.loc[B_real_m.index, B_real_m.columns],
+        B_real_m.shift(1), n_portf=5).rename("flb")
+
+    car = poco.get_carry("data_dev_m", key_name="rx", x_curs=x_curs,
+        n_portf=5).hml.rename("carry")
+
+    pd.concat((flb, car), axis=1).dropna().loc["2011-01":].cumsum().plot()
 
     pd.concat((flb, car), axis=1).loc["2008-08":].corr()
 
@@ -390,8 +465,7 @@ if __name__ == "__main__":
     from foolbox.linear_models import DynamicOLS
 
     # ipdb.set_trace()
-    B = oibp.calculate_olsbetas(assets=s_d, method="rolling",
-        window=252, exclude_self=True)
+
 
     B_m = B.resample('M').last()
 
@@ -404,3 +478,40 @@ if __name__ == "__main__":
     f = s_d.loc[:, oibp.mficov.minor_axis].mean(axis=1)
     mod = DynamicOLS(s_d.loc[:, "jpy"], f)
     mod.fit(method="rolling", window=120).tail()
+
+
+    # -----------------------------------------------------------------------
+    path_to_data = set_cred.set_path(
+        "option_implied_betas_project/data/",
+        which="gdrive")
+    with open(path_to_data + "raw/pickles/" + "imp_exp.p", mode="rb") as hngr:
+        imp_exp_data = pickle.load(hngr)
+
+    x_curs = ["sek", "nok", "dkk"]
+    imp = imp_exp_data["usd"]["imp"]
+    dt = pd.date_range(imp.index[0], imp.index[-1], freq='B')
+    imp = imp.rolling(12).mean().shift(3).reindex(index=dt, method="ffill")
+    exp = imp_exp_data["usd"]["exp"]
+    exp = exp.rolling(12).mean().shift(3).reindex(index=dt, method="ffill")
+    wght = (exp-imp).divide(np.abs(exp-imp).sum(axis=1), axis=0)
+    # imp = imp.divide(imp.sum(axis=1), axis=0)
+    # exp = exp.divide(exp.sum(axis=1), axis=0)
+    wght = exp
+
+    B_ols = oibp.calculate_olsbetas(assets=s_d, align=False, wght=None,
+        exclude_self=True, method="grouped_by",
+        by=TimeGrouper('M'))
+
+    B_ols = B_ols.loc["factor", :, :]
+    B_ols = B_ols.dropna(how="all")
+    B_m = B_ols.resample('M').last()
+
+    flb = poco.get_hml(rx, B_m.shift(1), n_portf=5).rename("flb")
+    flb.loc["2008-08":].cumsum().plot()
+
+    car = poco.get_carry("data_wmr_dev_m", key_name="rx", n_portf=5).hml\
+        .rename("carry")
+
+    pd.concat((flb, car), axis=1).loc["2008-08":].cumsum().plot()
+
+    pd.concat((flb, car), axis=1).corr()

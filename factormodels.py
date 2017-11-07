@@ -1,8 +1,10 @@
 import pandas as pd
+import numpy as np
 from foolbox.data_mgmt.set_credentials import *
 # import numpy as np
 
 from foolbox.linear_models import PureOls, DynamicOLS
+from optools_wrappers import normalize_weights
 
 class FactorModelEnvironment():
     """
@@ -71,11 +73,20 @@ class FactorModelEnvironment():
 def construct_factor(assets, weights):
     """
     """
-    rs = weights.mean(axis=1, skipna=True) * weights.count(axis=1)
-    weights = weights.divide(rs, axis=0)
-    factor = assets.mul(weights, axis=0).sum(axis=1)
+    w = norm_weights(weights)
+    factor = assets.mul(w, axis=0).sum(axis=1)
 
     return factor
+
+def norm_weights(weights):
+    """
+    """
+    new_weights = weights.copy()*np.nan
+
+    for t, row in weights.iterrows():
+        new_weights.loc[t, :] = normalize_weights(row)
+
+    return new_weights
 
 
 if __name__ == "__main__":
