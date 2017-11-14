@@ -13,6 +13,8 @@ from optools.import_data import *
 
 from optools.factormodels import FactorModelEnvironment
 
+from optools.oib_paper_settings import *
+
 class OIBPaper():
     """
     """
@@ -353,7 +355,6 @@ class OIBPaper():
 
         return B
 
-
     @staticmethod
     def trim_covmat(covmat):
         """
@@ -428,6 +429,30 @@ class OIBPaper():
 
         return (res_coef, res_tstat, res_r2)
 
+    def fig_carry_vs_flb(self, rx, which="mfibetas/eq", n_portf=3):
+        """Create figure with carry and flb."""
+        # fetch implied betas -----------------------------------------------
+        b_impl = self.from_hdf(which)
+
+        # smooth to arrive at monthly betas
+        b_impl_m = self.smooth_to_monthly(b_impl, wght=0.9)
+
+        # get flb (sort by b_impl_m) ----------------------------------------
+        flb = poco.get_hml(rx, b_impl_m, n_portf=n_portf).rename("flb")
+
+        # get carry ---------------------------------------------------------
+        carry = poco.get_carry("data_dev_m", key_name="rx",
+            x_curs=self.x_curs, n_portf=n_portf).loc[:, "hml"].rename("carry")
+
+        # concatenate and dropna --------------------------------------------
+        both = pd.concat((flb, carry), axis=1).dropna(how="any")
+
+        # plot --------------------------------------------------------------
+        fig, ax = plt.subplots()
+        both.plot(ax=ax)
+
+
+
 if __name__ == "__main__":
 
     from foolbox.api import *
@@ -485,17 +510,15 @@ if __name__ == "__main__":
     waf.copy()
     waf.copy()
 
-    # predict realized betas
-
-    flb = poco.get_hml(rx.loc[B_impl_m.index, B_impl_m.columns],
-        B_impl_m, n_portf=5).rename("flb")
+    # sort
+    flb = poco.get_hml(rx, B_impl_m, n_portf=3).rename("flb")
 
     car = poco.get_carry("data_dev_m", key_name="rx", x_curs=x_curs,
-        n_portf=5).hml.rename("carry")
+        n_portf=3).hml.rename("carry")
 
-    pd.concat((flb, car), axis=1).dropna().loc["2011-01":].cumsum().plot()
+    pd.concat((flb, car), axis=1).dropna().loc["2013-01":].cumsum().plot()
 
-    pd.concat((flb, car), axis=1).loc["2011-01":].corr()
+    pd.concat((flb, car), axis=1).loc["2013-01":].corr()
 
     B_ols = oibp.calculate_olsbetas(assets=s_d, align=True,
         method="expanding", min_periods=252)
@@ -565,11 +588,24 @@ if __name__ == "__main__":
 
     # PCA
     from foolbox.linear_models import PrincipalComponents
-    pca = PrincipalComponents(s_d.loc["2008-08":, B_impl_m.columns], n_comps=2)
+    pca = PrincipalComponents(s_d.loc[:"2008-06", B_impl_m.columns], n_comps=2)
     pca.estimate()
     pca.plot(cumsum=True)
     pca.rotate_components()
     pca.plot(cumsum=True)
     pca.loadings
+    new_wght = pca.loadings.loc[:, "pc_1"]
+    new_wght = wrap.normalize_weights(new_wght)
     pd.concat((pca.fit(), s_d.loc[:, B_impl_m.columns].mean(axis=1)), axis=1)\
         .corr()
+
+    B_impl_new = oibp.calculate_mfibetas(trim_vcv=False, exclude_self=True,
+        wght=new_wght, mnemonic="pca_based")
+    B_impl_new_m = oibp.smooth_to_monthly(B_impl_new, 0.9)
+
+
+    flb = poco.get_hml(rx, B_impl_new_m, n_portf=3).rename("flb")
+    car = poco.get_carry("data_dev_m", key_name="rx", x_curs=x_curs,
+        n_portf=3).hml.rename("carry")
+    pd.concat((flb, car), axis=1).loc["2013-01":].cumsum().plot()
+    pd.concat((flb, car), axis=1).loc["2013-01":].corr()
