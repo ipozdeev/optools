@@ -15,7 +15,7 @@ class FactorModelEnvironment():
         self.assets = assets.copy()
         self.factors = factors.copy()
 
-    def get_betas(self, method="simple", **kwargs):
+    def get_betas(self, method="simple", denom=False, **kwargs):
         """Calculate betas.
 
         Parameters
@@ -37,7 +37,7 @@ class FactorModelEnvironment():
             res = mod.fit(**kwargs)
         else:
             mod = DynamicOLS(y0=self.assets, x0=self.factors)
-            res = mod.fit(method=method, **kwargs)
+            res = mod.fit(method=method, denom=denom, **kwargs)
 
         return res
 

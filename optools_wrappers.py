@@ -247,6 +247,7 @@ def wrapper_beta_from_covmat(covmat, wght, exclude_self=False):
     # do the computations
     if exclude_self:
         B = pd.Series(index=wght.index)
+        D = pd.Series(index=wght.index)
         for c in wght.index:
             tmp_wght = wght.copy()
             tmp_wght.loc[c] = 0.0
@@ -254,15 +255,16 @@ def wrapper_beta_from_covmat(covmat, wght, exclude_self=False):
             this_num = covmat.dot(tmp_wght)
             denominator = tmp_wght.dot(covmat.dot(tmp_wght))
             B.loc[c] = this_num.loc[c]/denominator
+            D.loc[c] = denominator
     else:
         numerator = covmat.dot(wght)
-        denominator = wght.dot(covmat.dot(wght))
+        D = wght.dot(covmat.dot(wght))
         B = numerator/denominator
 
     # reindex back
     B = B.reindex(covmat.columns)
 
-    return B, denominator
+    return B, D
 
 def normalize_weights(wght):
     """
