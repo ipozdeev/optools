@@ -1,8 +1,10 @@
 import pandas as pd
 from pandas.tseries.resample import TimeGrouper
+from pandas.tseries.offsets import DateOffset
 import numpy as np
 from os import listdir
 import pickle
+import matplotlib.dates as mdates
 
 from foolbox.data_mgmt import set_credentials as set_cred
 from foolbox.linear_models import PureOls
@@ -386,7 +388,7 @@ class OIBPaper():
         """
         my_filter = lambda x: x.ewm(alpha=wght).mean()
         res = x.resample("M").apply(my_filter).groupby(
-            TimeGrouper(freq='M', level=-1)).last()
+            TimeGrouper(freq='M')).last()
 
         return res
 
@@ -447,10 +449,42 @@ class OIBPaper():
         # concatenate and dropna --------------------------------------------
         both = pd.concat((flb, carry), axis=1).dropna(how="any")
 
+        # add zero
+        both.loc[both.index[0]-DateOffset(months=1), :] = 0.0
+        both = both.loc[sorted(both.index)]
+
         # plot --------------------------------------------------------------
         fig, ax = plt.subplots()
-        both.plot(ax=ax)
+        ax.tick_params(axis='x', which='minor', bottom='off', top="off")
+        ax.xaxis.set_major_locator(mdates.YearLocator(1))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator(6))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+        ax.set_xlim((
+            both.index[0]-DateOffset(months=3),
+            both.index[0]+DateOffset(months=3)))
 
+        both.cumsum().plot(ax=ax, color=[my_red, my_blue], linewidth=1.5)
+
+        ax.annotate(r"$\rho={:3.2f}$".format(both.corr().iloc[0,1]),
+            xy=(0.95, 0.15), xycoords='axes fraction', backgroundcolor='w',
+            horizontalalignment='right', fontsize=14)
+
+        ylim_min, ylim_max = ax.get_ylim()
+        ax.set_ylim((ylim_min, ylim_max+0.1))
+
+        ax.legend(loc="upper left", prop={"size":12})
+
+        # labels
+        ax.set_ylabel("return, in frac. of 1")
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation="horizontal",
+            ha="center")
+
+        fig.tight_layout()
+
+        fig.savefig(self.path_main + "tex_nnew/figs/flb_vs_carry_x" +\
+            str(len(self.x_curs)) + "_cur.pdf", transparent=True)
+
+        return fig, ax
 
 
 if __name__ == "__main__":
@@ -460,7 +494,7 @@ if __name__ == "__main__":
     # parameters ------------------------------------------------------------
     tau_str = "1m"
     ccur = "usd"
-    x_curs = ["dkk"]
+    x_curs = ["sek", "nok", "dkk"]
 
     # data ------------------------------------------------------------------
     with open(data_path + "data_dev_m.p", mode="rb") as hangar:
@@ -475,6 +509,9 @@ if __name__ == "__main__":
 
     # instance --------------------------------------------------------------
     oibp = OIBPaper(tau_str=tau_str, ccur=ccur, x_curs=x_curs)
+
+    fig, ax = oibp.fig_carry_vs_flb(rx=rx)
+    fig.savefig("c:/users/igor/pictures/temp.jpg")
 
     # calculations ----------------------------------------------------------
     # mfiv = oibp.mfiv
