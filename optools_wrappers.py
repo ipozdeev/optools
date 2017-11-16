@@ -259,7 +259,7 @@ def wrapper_beta_from_covmat(covmat, wght, exclude_self=False):
     else:
         numerator = covmat.dot(wght)
         D = wght.dot(covmat.dot(wght))
-        B = numerator/denominator
+        B = numerator/D
 
     # reindex back
     B = B.reindex(covmat.columns)

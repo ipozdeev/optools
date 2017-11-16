@@ -4,8 +4,9 @@ from matplotlib.colors import LinearSegmentedColormap
 
 # colors
 my_gray = "#9b9b9b"
+my_black = "#1e1e1e"
 my_red = "#d54e00"
-my_blue = "#5670e9"
+my_blue = "#5687e9"
 
 my_palette = [my_red, my_blue]
 my_cmap = LinearSegmentedColormap.from_list("my_cmap", my_palette)

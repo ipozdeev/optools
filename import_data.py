@@ -285,8 +285,8 @@ def import_data_hf(data_path, filename):
 
 def import_rf_bloomi(filename, tau_str):
     """
-    filename = "c:/Users/Igor/Google Drive/Personal/"+\
-        "option_implied_betas_project/data/raw/longer/ir_bloomi.xlsx"
+    filename = "c:/Users/HSG-Spezial/Google Drive/Personal/"+\
+        "option_implied_betas_project/data/raw/ir/ir_bloomi.xlsx"
     tau_str = "1m"
     """
     cur = pd.read_excel(io=filename, sheetname="iso", header=0)
@@ -301,7 +301,7 @@ def import_rf_bloomi(filename, tau_str):
 
     # fetch pairs of (dates, values), remove nan
     # p = 1
-    data = [data.ix[:,(p*3):(p*3+1)].dropna() for p in range(len(cur))]
+    data = [data.iloc[:, (p*3):(p*3+2)].dropna() for p in range(len(cur))]
 
     # transform each pair into DataFrame indexed by first column (dates)
     for p in range(len(cur)):
@@ -313,4 +313,13 @@ def import_rf_bloomi(filename, tau_str):
     # rename
     data.columns = cur
 
+    with pd.HDFStore("c:/Users/HSG-Spezial/Google Drive/Personal/" \
+        "option_implied_betas_project/data/raw/ir/ir.h5",
+        mode='a') as h:
+        h.put("ir_"+tau_str, data)
+
     return data
+
+if __name__ == "__main__":
+    d = import_rf_bloomi("c:/Users/HSG-Spezial/Google Drive/Personal/"+\
+        "option_implied_betas_project/data/raw/ir/ir_bloomi.xlsx", "3m")

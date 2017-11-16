@@ -1,5 +1,4 @@
 import pandas as pd
-from pandas.tseries.resample import TimeGrouper
 from pandas.tseries.offsets import DateOffset
 import numpy as np
 from os import listdir
@@ -8,6 +7,7 @@ import matplotlib.dates as mdates
 
 from foolbox.data_mgmt import set_credentials as set_cred
 from foolbox.linear_models import PureOls
+from foolbox.utils import add_fake_signal
 
 from optools import optools_func as op
 from optools import optools_wrappers as wrap
@@ -62,10 +62,8 @@ class OIBPaper():
         path_to_options = self.path_to_raw + "options/"
 
         # interest rates
-        with open(self.path_to_raw + "ir/ir_bloomi.p", mode="rb") as hngr:
-            ir = pickle.load(hngr)
-
-        ir = ir[self.tau_str]
+        with pd.HDFStore(self.path_to_raw + "ir/ir.h5", mode="r") as h:
+            ir = h["/ir_" + self.tau_str]
 
         # fetch all files with raw data
         files = list(filter(
@@ -388,7 +386,7 @@ class OIBPaper():
         """
         my_filter = lambda x: x.ewm(alpha=wght).mean()
         res = x.resample("M").apply(my_filter).groupby(
-            TimeGrouper(freq='M')).last()
+            pd.Grouper(freq='M')).last()
 
         return res
 
@@ -431,23 +429,36 @@ class OIBPaper():
 
         return (res_coef, res_tstat, res_r2)
 
-    def fig_carry_vs_flb(self, rx, which="mfibetas/eq", n_portf=3):
+    def fig_carry_vs_flb(self, rx, fdisc, which="mfibetas/eq", n_portf=3,
+        add_fake_sig=False):
         """Create figure with carry and flb."""
         # fetch implied betas -----------------------------------------------
         b_impl = self.from_hdf(which)
 
         # smooth to arrive at monthly betas
-        b_impl_m = self.smooth_to_monthly(b_impl, wght=0.9)
+        b_impl_m = self.smooth_to_monthly(b_impl, wght=0.9).ffill()
+
+        # fake signal? ------------------------------------------------------
+        if add_fake_sig:
+            rx, b_impl_m = add_fake_signal(rx, b_impl_m)
+            _, fdisc = add_fake_signal(fdisc, fdisc)
 
         # get flb (sort by b_impl_m) ----------------------------------------
-        flb = poco.get_hml(rx, b_impl_m, n_portf=n_portf).rename("flb")
+        flb = poco.get_hml(rx, b_impl_m.shift(1),
+            n_portf=n_portf).rename("flb")
 
         # get carry ---------------------------------------------------------
-        carry = poco.get_carry("data_dev_m", key_name="rx",
-            x_curs=self.x_curs, n_portf=n_portf).loc[:, "hml"].rename("carry")
+        carry_smpl_name = "carry_"+str(10-len(self.x_curs))
+        carry_smpl = poco.get_hml(rx.loc[:, b_impl_m.columns], fdisc.shift(1),
+            n_portf=n_portf).rename(
+            carry_smpl_name)
+
+        carry_all = poco.get_hml(rx, fdisc.shift(1),
+            n_portf=n_portf).rename("carry_10")
 
         # concatenate and dropna --------------------------------------------
-        both = pd.concat((flb, carry), axis=1).dropna(how="any")
+        both = pd.concat((flb, carry_smpl, carry_all),
+            axis=1).dropna(how="any")
 
         # add zero
         both.loc[both.index[0]-DateOffset(months=1), :] = 0.0
@@ -455,19 +466,33 @@ class OIBPaper():
 
         # plot --------------------------------------------------------------
         fig, ax = plt.subplots()
+
+        # ticks
         ax.tick_params(axis='x', which='minor', bottom='off', top="off")
         ax.xaxis.set_major_locator(mdates.YearLocator(1))
-        ax.xaxis.set_minor_locator(mdates.MonthLocator(6))
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-        ax.set_xlim((
-            both.index[0]-DateOffset(months=3),
-            both.index[0]+DateOffset(months=3)))
 
-        both.cumsum().plot(ax=ax, color=[my_red, my_blue], linewidth=1.5)
+        both.cumsum().plot(ax=ax, color=[my_black, my_red, my_blue],
+            linewidth=1.5)
 
-        ax.annotate(r"$\rho={:3.2f}$".format(both.corr().iloc[0,1]),
-            xy=(0.95, 0.15), xycoords='axes fraction', backgroundcolor='w',
-            horizontalalignment='right', fontsize=14)
+        # ax.set_xlim((
+        #     both.index[0]-DateOffset(months=3),
+        #     both.index[0]+DateOffset(months=3)))
+
+        ax.annotate(
+            r"$\rho={:3.2f}$".format(both.corr().loc["flb", carry_smpl_name]),
+            xy=(0.95, 0.25),
+            xycoords='axes fraction',
+            backgroundcolor='w',
+            horizontalalignment='right',
+            fontsize=14, color=my_red)
+        ax.annotate(
+            r"$\rho={:3.2f}$".format(both.corr().loc["flb", "carry_10"]),
+            xy=(0.95, 0.15),
+            xycoords='axes fraction',
+            backgroundcolor='w',
+            horizontalalignment='right',
+            fontsize=14, color=my_blue)
 
         ylim_min, ylim_max = ax.get_ylim()
         ax.set_ylim((ylim_min, ylim_max+0.1))
@@ -476,12 +501,15 @@ class OIBPaper():
 
         # labels
         ax.set_ylabel("return, in frac. of 1")
+        ax.set_xlabel('', visible=False)
+
         plt.setp(ax.xaxis.get_majorticklabels(), rotation="horizontal",
             ha="center")
 
         fig.tight_layout()
 
-        fig.savefig(self.path_main + "tex_nnew/figs/flb_vs_carry_x" +\
+        fig.savefig(self.path_main + "tex_nnew/figs/flb_vs_carry_" +\
+            str(n_portf) + "portf_x" +\
             str(len(self.x_curs)) + "_cur.pdf", transparent=True)
 
         return fig, ax
@@ -497,21 +525,23 @@ if __name__ == "__main__":
     x_curs = ["sek", "nok", "dkk"]
 
     # data ------------------------------------------------------------------
-    with open(data_path + "data_dev_m.p", mode="rb") as hangar:
-        data_m = pickle.load(hangar)
+    with pd.HDFStore(data_path + "data_wmr_dev_m.h5", mode="r") as hangar:
+        data_m = dict(hangar)
 
-    rx = data_m["rx"]
+    rx_m = data_m["/rx"]
+    fdisc_m = data_m["/fwd_disc"]
 
-    with open(data_path + "data_dev_d.p", mode="rb") as hangar:
-        data_d = pickle.load(hangar)
+    with pd.HDFStore(data_path + "data_wmr_dev_d.h5", mode="r") as hangar:
+        data_d = dict(hangar)
 
-    s_d = data_d["spot_ret"]
+    s_d = data_d["/spot_ret"]
+    s_m = s_d.resample('M').sum()
 
     # instance --------------------------------------------------------------
     oibp = OIBPaper(tau_str=tau_str, ccur=ccur, x_curs=x_curs)
 
-    fig, ax = oibp.fig_carry_vs_flb(rx=rx)
-    fig.savefig("c:/users/igor/pictures/temp.jpg")
+    fig, ax = oibp.fig_carry_vs_flb(rx=rx_m, fdisc=fdisc_m, n_portf=3,
+        add_fake_sig=True)
 
     # calculations ----------------------------------------------------------
     # mfiv = oibp.mfiv
@@ -525,11 +555,44 @@ if __name__ == "__main__":
     B_impl = B_impl * oibp.from_hdf("vix/eq") * 10000
     B_impl_m = oibp.smooth_to_monthly(B_impl, 0.9).fillna(method="ffill")
 
+    B_impl_m.describe()
+    (fdisc_m.loc[B_impl_m.index, B_impl_m.columns]*10000).describe()
+
     # ols betas
     B_real = oibp.calculate_olsbetas(assets=s_d,
         align=True, wght=None, exclude_self=True,
-        method="grouped_by", by=TimeGrouper('M'))
+        method="simple")
+        # , by=pd.Grouper(freq='M'))
+
     B_real_m = oibp.from_hdf("olsbetas/grouped_by")
+
+    flb = poco.get_hml(rx_m,
+        B_real_m,
+        n_portf=5)
+    car = poco.get_carry("data_wmr_dev_m", key_name="rx",
+        n_portf=5).hml
+
+    flb.corr(car)
+
+    flb.cumsum().plot()
+    car.cumsum().plot()
+
+    B_real_m.describe()
+
+    pd.concat((
+        pd.Series(np.diag(B), index=B.columns).rename("sample"),
+        B_real_m.mean().rename("mean")), axis=1)
+
+    lol = pd.concat((
+        B_real_m,
+        rx_m.loc[:, B_real_m.columns].mean(axis=1).rename("dol")), axis=1)
+    lol.cov().loc["dol", :]*100*12
+
+    pf = poco.rank_sort(rx_m, B_impl_m.shift(1), n_portfolios=3)
+    sig = (pf["portfolio3"]*0+1).fillna(pf["portfolio1"]*0-1)
+    sig.rolling(12).count().mul(sig).plot()
+
+    rx_m.cumsum().plot()
 
     # ols covs
     B_real = oibp.calculate_olscov(assets=s_d,
@@ -646,3 +709,11 @@ if __name__ == "__main__":
         n_portf=3).hml.rename("carry")
     pd.concat((flb, car), axis=1).loc["2013-01":].cumsum().plot()
     pd.concat((flb, car), axis=1).loc["2013-01":].corr()
+
+    lol = pd.read_clipboard(index_col=0, header=None)
+    lol.columns = ["cpi", "sp500"]
+
+    # contemporaneous
+    lol.loc[:, "cpi"].corr(lol.loc[:, "sp500"])
+    # 1-month lagged cpi
+    lol.loc[:, "cpi"].shift(1).corr(lol.loc[:, "sp500"])

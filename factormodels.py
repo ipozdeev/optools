@@ -34,7 +34,7 @@ class FactorModelEnvironment():
 
         if method == "simple":
             mod = PureOls(y0=self.assets, X0=self.factors, add_constant=True)
-            res = mod.fit(**kwargs)
+            res = mod.fit(**kwargs).T
         else:
             mod = DynamicOLS(y0=self.assets, x0=self.factors)
             res = mod.fit(method=method, denom=denom, **kwargs)
