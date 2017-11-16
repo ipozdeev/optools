@@ -4,7 +4,7 @@ from foolbox.data_mgmt.set_credentials import *
 # import numpy as np
 
 from foolbox.linear_models import PureOls, DynamicOLS
-from optools_wrappers import normalize_weights
+from optools.optools_wrappers import normalize_weights
 
 class FactorModelEnvironment():
     """
