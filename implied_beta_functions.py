@@ -6,8 +6,8 @@ from pandas.tseries.offsets import MonthEnd, QuarterEnd, DateOffset
 import statsmodels.api as sm
 import pickle
 
-from optools import optools_func as op
-from optools import optools_wrappers as wrap
+from optools import functions as op
+from optools import wrappers as wrap
 from optools.import_data import *
 
 from foolbox import portfolio_construction as poco, RegressionModel as regm

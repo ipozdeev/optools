@@ -7,16 +7,43 @@ usr = "hsg-spezial"
 path = "c:/users/" + usr + "/google drive/" + \
 "personal/option_implied_betas_project/"
 
-import logging
-# logger settings
-logging.basicConfig(filename=path+"/log/optools_test_logger.txt",
-    filemode='w',
-    format="%(asctime)s || %(levelname)s:%(message)s",
-    datefmt="%H:%M:%S")
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+# import logging
+# # logger settings
+# logging.basicConfig(filename=path+"/log/optools_test_logger.txt",
+#     filemode='w',
+#     format="%(asctime)s || %(levelname)s:%(message)s",
+#     datefmt="%H:%M:%S")
+# logger = logging.getLogger()
+# logger.setLevel(logging.DEBUG)
 
-from optools import optools_func as op, optools_wrappers as opwraps
+from optools import functions as op, wrappers as opwraps
+
+
+class TestFromWystup(unittest.TestCase):
+    """
+    """
+    def setUp(self):
+        """
+        """
+        delta = 0.25
+        rr = 0.18
+        bf = 0.15
+        atm = 4.83
+
+        self.delta = delta
+        self.rr = rr
+        self.bf = bf
+        self.atm = atm
+
+    def test_wings_from_combies_iv(self):
+        """
+        """
+        res = op.wings_iv_from_combies_iv(self.rr, self.bf, self.atm,
+                                          self.delta)
+
+        self.assertAlmostEquals(res.loc[self.delta], 5.07, 2)
+        self.assertAlmostEquals(res.loc[1-self.delta], 4.89, 2)
+
 
 # class TestSimpleFormulas(unittest.TestCase):
 #     """
@@ -249,6 +276,7 @@ class TestMfiv(unittest.TestCase):
     #     # assert
     #     self.assertAlmostEqual(ivs_interp.mean(), self.iv.mean(), places=4)
 
+    @unittest.skip("")
     def test_mfiv_wrapper(self):
         """
         """
@@ -308,6 +336,7 @@ class TestOptoolsWrappers(unittest.TestCase):
         self.sigma_p = sigma_p
         self.sigma_q = sigma_q
 
+    @unittest.skip("")
     def test_wrapper_implied_co_mat(self):
         """
         """
@@ -318,6 +347,7 @@ class TestOptoolsWrappers(unittest.TestCase):
         self.assertAlmostEqual(vcv.iloc[1,0],
             -1*self.sigma_p*self.sigma_q*self.rho_pq, 1)
 
+    @unittest.skip("")
     def test_wrapper_beta_from_covmat(self):
         """
         """
@@ -332,12 +362,3 @@ if __name__ == "__main__":
     unittest.main()
 
 
-# interpolate.splrep(
-#     np.array([1.93073507,1.40213606,1.59884974,1.29882618,1.12422187,1.0]),
-#     np.array([0.1,0.2,0.3,0.4,0.5,0.6]))
-#
-# x = sorted(np.random.normal(size=(10,)))
-# interpolate.splrep(x, np.exp(np.sin(x)))
-# lol = pd.DataFrame(data=np.random.random((100,2)))
-# list(lol.values.T)
-# lol.index.values.diff()

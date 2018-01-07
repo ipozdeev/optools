@@ -9,8 +9,8 @@ from foolbox.data_mgmt import set_credentials as set_cred
 from foolbox.linear_models import PureOls
 from foolbox.utils import add_fake_signal
 
-from optools import optools_func as op
-from optools import optools_wrappers as wrap
+from optools import functions as op
+from optools import wrappers as wrap
 from optools.import_data import *
 
 from optools.factormodels import FactorModelEnvironment

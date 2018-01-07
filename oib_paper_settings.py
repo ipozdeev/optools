@@ -13,16 +13,17 @@ my_cmap = LinearSegmentedColormap.from_list("my_cmap", my_palette)
 
 # settings
 font_settings = {
-    "family": "serif",
-    "size": 12}
+    "family": "sans-serif",
+    "size": 14}
 fig_settings = {
     "figsize": (8.27,11.69/2.5)}
 tick_settings = {
-    "labelsize": 12}
+    "labelsize": 14}
 axes_settings = {
     "grid": True}
 grid_settings = {
-    "alpha": 0.66}
+    "alpha": 0.66,
+    "linestyle": ':'}
 
 # parse all
 plt.rc("xtick", **tick_settings)
