@@ -1,11 +1,13 @@
 # here be dragons
 import pandas as pd
 
-def import_data(data_path, filename, tau_str):
+def import_data(data_path, filename, tau_str, ir_name="ir_bloomi.xlsx"):
     """ Read in info from `filename`
 
     File has to contain sheets named "1M" "3M" which store quotes of option
     contracts
+
+    data_path = path_to_raw
     """
     base_cur = filename[:3]
     counter_cur = filename[3:6]
@@ -40,14 +42,14 @@ def import_data(data_path, filename, tau_str):
         skiprows=5,
         header=None)
 
-    sf = [sf.ix[:,(p*2):(p*2+1)].dropna() for p in range(3)]
+    sf = [sf.ix[:,(p*2):(p*2+1)].dropna() for p in range(6)]
 
-    for p in range(3):
+    for p in range(6):
         sf[p].index = sf[p].pop(p*2)
 
     sf = pd.concat(sf, axis=1, ignore_index=True)
 
-    sf.columns = ["s","f1m","f3m"]
+    sf.columns = ["s","f1m","f3m","f6m","f9m","f12m",]
 
     # choose required maturity
     sf = sf[["s", "f"+tau_str]]
@@ -57,30 +59,62 @@ def import_data(data_path, filename, tau_str):
     converters = {}
     for p in range(4):
         converters[p*2] = lambda x: pd.to_datetime(x)
-    rf = pd.read_excel(
-        io=data_path+filename,
-        sheetname="RF",
-        skiprows=5,
-        header=None,
-        converters=converters)
 
-    rf = [rf.ix[:,(p*2):(p*2+1)].dropna() for p in range(4)]
+    # discriminate bertween ir stored separately and not
+    if ir_name is None:
+        rf = pd.read_excel(
+            io=data_path+filename,
+            sheetname="RF",
+            skiprows=5,
+            header=None,
+            converters=converters)
 
-    for p in range(4):
-        rf[p].index = rf[p].pop(p*2)
+        rf = [rf.ix[:,(p*2):(p*2+1)].dropna() for p in range(4)]
 
-    rf = pd.concat(rf, axis=1, ignore_index=True)
+        for p in range(4):
+            rf[p].index = rf[p].pop(p*2)
 
-    rf.columns = [base_cur+"1m", base_cur+"3m",
-        counter_cur+"1m", counter_cur+"3m"]
+        rf = pd.concat(rf, axis=1, ignore_index=True)
 
-    # select required maturity
-    rf = rf[[base_cur+tau_str, counter_cur+tau_str]]
+        rf.columns = [base_cur+"1m", base_cur+"3m",
+            counter_cur+"1m", counter_cur+"3m"]
+
+        # select required maturity
+        rf = rf[[base_cur+tau_str, counter_cur+tau_str]]
+
+    elif isinstance(ir_name, pd.DataFrame):
+        rf = ir_name[[base_cur, counter_cur]]
+
+    elif ir_name == "ir_bloomi.xlsx":
+        rf = import_rf_bloomi(data_path+ir_name, tau_str)
+        rf = rf[[base_cur, counter_cur]]
+
+    else:
+        # read in rf data
+        rf = pd.read_excel(
+            io=data_path+"ir.xlsm",
+            sheetname=tau_str,
+            skiprows=0,
+            header=1,
+            index_col=0)
+        rf.drop_duplicates(inplace=True)
+        # read in iso letters
+        iso = pd.read_excel(
+            io=data_path+"ir.xlsm",
+            sheetname="iso")
+        # rename
+        rf.columns = [c.lower() for c in iso.columns]
+        rf = rf[[base_cur, counter_cur]]
+
+    rf.columns = [p+tau_str for p in rf.columns]
 
     rf = rf/100
 
     # merge everything --------------------------------------------------------
-    data = deriv.join(sf, how="inner").join(rf, how="inner")
+    data = deriv.join(sf, how="inner").join(rf, how="outer")
+
+    # interpolate rf (sad losing rows because of it)
+    data[rf.columns] = data[rf.columns].fillna(method="ffill")
 
     # select relevant maturity ------------------------------------------------
     data = data[list(deriv.columns) + ["s",] + \
@@ -90,10 +124,11 @@ def import_data(data_path, filename, tau_str):
     data.columns = list(deriv.columns) + ["s",] + ["f", "rf", "y"]
 
     # from forward points to forward ------------------------------------------
-    data.loc[:,"f"] = data["s"]+data["f"]/10000
+    fp = 100 if counter_cur == "jpy" else 10000
+    data.loc[:,"f"] = data["s"]+data["f"]/fp
 
     # drop na -----------------------------------------------------------------
-    data.dropna(inplace=True)
+    data.dropna(inplace=True, how="any")
 
     return data
 
@@ -236,7 +271,7 @@ def import_data_hf(data_path, filename):
     deriv_panel.loc[:,:,"rf_base"] = rf_base
     deriv_panel.loc[:,:,"rf_counter"] = rf_counter
 
-    # # drop na -------------------------------------------------------------
+    # drop na ---------------------------------------------------------------
     # deriv_panel.dropna(axis="major_axis", how="any", inplace=True)
 
     # store in HDF
@@ -247,3 +282,35 @@ def import_data_hf(data_path, filename):
     hangar.close()
 
     return deriv_panel.major_axis
+
+def import_rf_bloomi(filename, tau_str):
+    """
+    filename = "c:/Users/Igor/Google Drive/Personal/"+\
+        "option_implied_betas_project/data/raw/longer/ir_bloomi.xlsx"
+    tau_str = "1m"
+    """
+    cur = pd.read_excel(io=filename, sheetname="iso", header=0)
+    cur = cur.columns
+
+    # read in: contracts ------------------------------------------------------
+    data = pd.read_excel(
+        io=filename,
+        sheetname=tau_str,
+        skiprows=2,
+        header=None)
+
+    # fetch pairs of (dates, values), remove nan
+    # p = 1
+    data = [data.ix[:,(p*3):(p*3+1)].dropna() for p in range(len(cur))]
+
+    # transform each pair into DataFrame indexed by first column (dates)
+    for p in range(len(cur)):
+        data[p].index = data[p].pop(p*3)
+
+    # concatenate pairs
+    data = pd.concat(data, axis=1, ignore_index=True)
+
+    # rename
+    data.columns = cur
+
+    return data

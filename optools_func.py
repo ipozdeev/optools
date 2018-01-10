@@ -4,13 +4,16 @@ import numpy as np
 from scipy.special import erf
 from scipy.stats import norm
 from scipy.optimize import fsolve, minimize, differential_evolution
+from scipy import interpolate, integrate
+from statsmodels.nonparametric.kernel_regression import KernelReg
 import multiprocessing as mproc
-from ip_econometrics import RegressionModel as regm
 import sys
+
+# from ip_econometrics import RegressionModel as regm
 # import ipdb
 
 # module with global configurations
-import config
+from optools import config
 
 # logging module
 import logging
@@ -20,6 +23,221 @@ def aux_fun(x):
     """ run_one_row to use in multiprocessing
     """
     return(run_one_row(x, **config.cfg_dict))
+
+def mfiv_wrapper(iv_surf, f, rf, tau, smooth_method="spline",
+    version="jiang_tian"):
+    """
+    Returns
+    -------
+    res : scalar
+        mfiv, not annualized, in (fractions of 1)^2
+    """
+    # min and max strikes
+    K_min = np.min(iv_surf["K"])
+    K_max = np.max(iv_surf["K"])
+
+    # interpolate ivs
+    iv_interp = interpolate_iv(iv_surf, method=smooth_method)
+
+    # extend beyond limits: constant fashion
+    dK = np.diff(iv_interp.index).mean()
+    new_idx_left = np.arange(0.66*f, K_min, dK)
+    new_idx_right = np.arange(K_max+dK, f*1.5, dK)
+    new_idx = np.concatenate((new_idx_left, iv_interp.index, new_idx_right))
+    iv_interp = iv_interp.reindex(index=new_idx)
+    iv_interp.fillna(method="ffill", inplace=True)
+    iv_interp.fillna(method="bfill", inplace=True)
+
+    # back to prices
+    C_interp = bs_price(f, np.array(iv_interp.index), rf, tau,
+        iv_interp.values)
+
+    # ipdb.set_trace()
+
+    # version
+    if version == "jiang_tian":
+        # integrate
+        y = (C_interp*np.exp(rf*tau) - \
+            np.maximum(np.zeros(shape=(len(C_interp),)), f-new_idx))/\
+            (new_idx*new_idx)
+        res = integrate.simps(y, new_idx)*2
+
+    elif version == "sarno":
+        # part of prices to puts
+        P_interp = call_to_put(
+            C = C_interp,
+            K = new_idx,
+            f = f,
+            rf = rf,
+            tau = tau)
+
+        K_C = new_idx[new_idx >= f]
+        C = C_interp[new_idx >= f]
+        K_P = new_idx[new_idx < f]
+        P = P_interp[new_idx < f]
+
+        res = integrate.simps(P/K_P**2, K_P) + integrate.simps(C/K_C**2, K_C)
+        # res *= (2/tau)*np.exp(rf*tau)
+        res *= (2)*np.exp(rf*tau)
+
+
+    return res
+
+def interpolate_iv(iv_surf, method="spline", X_pred=None):
+    """ Interpolate iv surface.
+    Spline interpolation is only supported for 2D data: iv ~ strikes.
+    Kernel regression interpolation is supported for 2D and 3D data:
+    iv ~ strikes + tau.
+    Parameters
+    ----------
+    iv_surf : pandas.DataFrame
+        with columns "K" for strikes, "iv" for implied volatilities, and
+        (optional) "tau" for maturity, in years.
+    method : str
+        "spline" or "kernel".
+    X_pred : pandas.DataFrame
+        with the same columns as `iv_surf` except for "iv".
+
+    Returns
+    -------
+    rse : pd.Series
+        indexed with new strikes and containing interpolated iv
+    """
+    # sort values: needed for spline to work properly
+    iv_surf = iv_surf.sort_values(by="K", axis=0)
+
+    # response is iv
+    endog = iv_surf["iv"].values
+
+    # if K_pred missing, use linspace over range of provided K;
+    # also, everything should be lists (for kernel regression to work)
+    if X_pred is None:
+        X_pred = [np.linspace(np.min(iv_surf["K"]), np.max(iv_surf["K"]),
+            np.ceil(np.ptp(iv_surf["K"])/0.005)), ]
+    else:
+        # turn columns of df into list elements
+        X_pred = list(X_pred.values.T)
+
+    # var_type for kernel regression: see KernelReg for details
+    var_type = ['c',] + (['u',] if iv_surf.shape[1] > 2 else [])
+
+    # regressors, as a list
+    exog = list(iv_surf.drop(["iv",], axis=1).values.T)
+
+    # if iv_surf.shape[1] > 2:
+    #     if tau is None:
+    #         raise NameError("Maturity of interpolated series not provided")
+    #     else:
+    #         # make list out of provided maturity
+    #         exog += [iv_surf["tau"].values, ]
+    #         X_pred += [np.array([tau,]*len(K_pred)),]
+    #     var_type += ['u',]
+
+    # method
+    if method == "spline":
+        if iv_surf.shape[1] > 2:
+            raise NotImplementedError("Not possible")
+            # # convert to ndarrays
+            # exog_df = pd.DataFrame(index=np.unique(exog[0]),
+            #     columns=np.unique(exog[1]), dtype=np.float)*np.nan
+            # for p in range(len(exog[0])):
+            #     exog_df.loc[exog[0][p], exog[1][p]] = endog[p]
+            #
+            # endog_mat = exog_df.values
+            #
+            # x, y = np.meshgrid(exog_df.index, exog_df.columns, indexing="ij")
+            # tck = interpolate.bisplrep(x, y, endog_mat, s=0)
+            #
+            # print(X_pred[0])
+            # # xnew, ynew = np.meshgrid(X_pred[0], X_pred[1], indexing="ij")
+            # # print(xnew)
+            # # print(ynew)
+            # znew = interpolate.bisplev(X_pred[0], [tau,], tck)
+            # print(znew)
+        else:
+            # estimate iv ~ strikes
+            tck = interpolate.splrep(exog[0], endog, s=0)
+            # predict
+            znew = interpolate.splev(X_pred[0], tck, der=0)
+
+    elif method == "kernel":
+        # estimate endog must be a list of one elt
+        kr = KernelReg(endog=[endog,], exog=exog, var_type=var_type,
+            reg_type="ll")
+        # fit
+        znew, _ = kr.fit(data_predict=X_pred)
+
+    # return, squeeze jsut in case
+    res = pd.Series(index=X_pred[0], data=znew.squeeze())
+
+    return res
+
+def mfiskew_wrapper(iv_surf, f, rf, tau, S, method="spline"):
+    """
+    """
+    # min and max strikes
+    K_min = np.min(iv_surf["K"])
+    K_max = np.max(iv_surf["K"])
+
+    # interpolate ivs
+    iv_interp = interpolate_iv(iv_surf, method=method,
+        X_pred=pd.DataFrame(data=np.linspace(K_min,K_max,50)))
+
+    # extend beyond limits: constant fashion
+    dK = np.diff(iv_interp.index).mean()
+    new_idx_left = np.arange(0.66*f, K_min, dK)
+    new_idx_right = np.arange(K_max+dK, f*1.5, dK)
+    new_idx = np.concatenate((new_idx_left, iv_interp.index, new_idx_right))
+    iv_interp = iv_interp.reindex(index=new_idx)
+    iv_interp.fillna(method="ffill", inplace=True)
+    iv_interp.fillna(method="bfill", inplace=True)
+
+    # back to prices
+    C_interp = bs_price(f, iv_interp.index, rf, tau, iv_interp.values)
+
+    # put-call parity: C for for K > S and P for K <= S
+    K_P = iv_interp.index[iv_interp.index <= S]
+    P = call_to_put(
+        C = C_interp[iv_interp.index <= S],
+        K = K_P,
+        f = f,
+        rf = rf,
+        tau = tau)
+
+    K_C = iv_interp.index[iv_interp.index > S]
+    C = C_interp[iv_interp.index > S]
+
+    # cubic contract
+    yC = (6*np.log(K_C/S) - 3*np.log(K_C/S)**2)/K_C**2 * C
+    yP = (6*np.log(S/K_P) + 3*np.log(S/K_P)**2)/K_P**2 * P
+    W = integrate.simps(yC, K_C) - integrate.simps(yP, K_P)
+
+    # quadratic contract
+    V = mfiv_wrapper(iv_surf, f, rf, tau, method)
+
+    # quartic contract
+    yC = (12*np.log(K_C/S)**2 - 4*np.log(K_C/S)**3)/K_C**2 * C
+    yP = (12*np.log(S/K_P)**2 + 4*np.log(S/K_P)**3)/K_P**2 * P
+    X = integrate.simps(yC, K_C) + integrate.simps(yP, K_P)
+
+    # mu
+    mu = np.exp(rf*tau) - 1 - np.exp(rf*tau)/2*V - np.exp(rf*tau)/6*W -\
+        np.exp(rf*tau)/24*X
+
+    # all together
+    mfiskew = (np.exp(rf*tau)*W - 3*mu*np.exp(rf*tau)*V + 2*mu**3)/\
+        (np.exp(rf*tau)*V - mu**2)**(3/2)
+
+    return mfiskew
+
+def call_to_put(C, K, f, rf, tau):
+    """ Put-call parity relation
+
+    Vectorized for C, K
+    """
+    P = C - f*np.exp(-rf*tau) + K*np.exp(-rf*tau)
+
+    return P
 
 def estimation_wrapper(data, tau, parallel=False):
     """ Loop over rows in `data` to estimate RND of the underlying.
@@ -74,6 +292,7 @@ def estimation_wrapper(data, tau, parallel=False):
         for idx_row in data.iterrows():
             # estimate rnd for this index; unpack the dict in config to get
             # hold of constraints and bounds
+            # pdb.set_trace()
             idx, res = run_one_row(idx_row, **config.cfg_dict)
             # store
             par.loc[idx,:] = res
@@ -524,7 +743,7 @@ def run_one_row(idx_row, tau, opt_meth, constraints):
     logger.debug(("Vegas:\n"+"%.2f "*len(np.diag(W))+"\n") %
         tuple(np.diag(W)))
 
-    # estimate rnd! TODO: constraints are hardcoded now, relocate somewhere
+    # estimate rnd!
     res = estimate_rnd(
         ivs*np.sqrt(tau),
         row["f"],
@@ -601,69 +820,60 @@ def optimize_for_mixture_par(x0, K, rf, c_true, f_true, is_iv, W,
 
     return x, w
 
-def rnd_nonparametric(y, X, X_pred, rf, tau, is_iv=True, h=None, **kwargs):
-    """
-
-    Parameters
-    ----------
-    X_pred :
-        strikes must be in column 0 and equally spaced
-    **kwargs : dict
-        (if `is_iv` is True) all arguments to `bs_price` except `sigma`
-
-    Returns
-    -------
-    res : pandas.DataFrame
-        "rnd" is density, "iv" is fitted iv's
-    """
-    # init model
-    mod = regm.KernelRegression(y0=y, X0=X)
-
-    # use cross_validation if needed, bleach is automatically done
-    if h is None:
-        h = mod.cross_validation(k=10)*5
-    else:
-        # if no cross_validation, need to bleach
-        mod.bleach(z_score=True, add_constant=False, dropna=True)
-
-    # fit curve
-    y_hat = mod.fit(X_pred=X_pred, h=h)
-
-    # save for later
-    iv = y_hat
-
-    # from iv to price if needed
-    if is_iv:
-        y_hat = bs_price(rf=rf, tau=tau, sigma=y_hat, **kwargs)
-
-    # differentiate with respect to K ---------------------------------------
-    K_pred = X_pred[1:-1,0]
-    # assumed K_pred are equally spaced, calculate dK
-    dK = K_pred[1]-K_pred[0]
-    # second difference
-    d2C = np.exp(rf*1/12)*(y_hat[2:] - 2*y_hat[1:-1] + y_hat[:-2])/dK**2
-    # get rid of negative values: if after truncation there are negative
-    #    values, redo the estimation with a higher k
-    if (d2C < 0).any():
-        med_K = np.median(K_pred)
-        before_idx = K_pred <= med_K
-        after_idx = K_pred > med_K
-        body_start = np.max(np.where(d2C[before_idx] <= 0))+1
-        body_end = sum(before_idx)+np.max(np.where(d2C[after_idx] > 0))+1
-        # trim
-        d2C[:body_start] = 0
-        d2C[body_end:] = 0
-
-    # check how much we have truncated
-    intgr = np.trapz(d2C, K_pred)
-    if 1-intgr > 1e-04:
-        logger.warning("Density integrates to {:5.4f}".format(intgr))
-
-    # rescale
-    d2C = d2C/intgr
-
-    # result to a DataFrame
-    res = pd.DataFrame(data=d2C, index=K_pred, columns=["rnd",])
-    res["iv"] = iv[1:-1]
-
-    return res
+# def rnd_nonparametric(y, X, X_pred, rf, tau, is_iv=True, h=None, **kwargs):
+#     """
+#
+#     Parameters
+#     ----------
+#     X_pred :
+#         strikes must be in column 0 and equally spaced
+#     **kwargs : dict
+#         (if `is_iv` is True) all arguments to `bs_price` except `sigma`
+#     """
+#     # init model
+#     mod = regm.KernelRegression(y0=y, X0=X)
+#
+#     # use cross_validation if needed, bleach is automatically done
+#     if h is None:
+#         h = mod.cross_validation(k=10)*5
+#     else:
+#         # if no cross_validation, need to bleach
+#         mod.bleach(z_score=True, add_constant=False, dropna=True)
+#
+#     # fit curve
+#     y_hat = mod.fit(X_pred=X_pred, h=h)
+#
+#     # from iv to price if needed
+#     if is_iv:
+#         y_hat = bs_price(rf=rf, tau=tau, sigma=y_hat, **kwargs)
+#
+#     # differentiate with respect to K ---------------------------------------
+#     K_pred = X_pred[1:-1,0]
+#     # assumed K_pred are equally spaced, calculate dK
+#     dK = K_pred[1]-K_pred[0]
+#     # second difference
+#     d2C = np.exp(rf*1/12)*(y_hat[2:] - 2*y_hat[1:-1] + y_hat[:-2])/dK**2
+#     # get rid of negative values: if after truncation there are negative
+#     #    values, redo the estimation with a higher k
+#     if (d2C < 0).any():
+#         med_K = np.median(K_pred)
+#         before_idx = K_pred <= med_K
+#         after_idx = K_pred > med_K
+#         body_start = np.max(np.where(d2C[before_idx] <= 0))+1
+#         body_end = sum(before_idx)+np.max(np.where(d2C[after_idx] > 0))+1
+#         # trim
+#         d2C[:body_start] = 0
+#         d2C[body_end:] = 0
+#
+#     # check how much we have truncated
+#     intgr = np.trapz(d2C, K_pred)
+#     if 1-intgr > 1e-04:
+#         logger.warning("Density integrates to {:5.4f}".format(intgr))
+#
+#     # rescale
+#     d2C = d2C/intgr
+#
+#     # result to a DataFrame
+#     res = pd.Series(data=d2C, index=K_pred)
+#
+#     return res
