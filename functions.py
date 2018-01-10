@@ -14,7 +14,7 @@ logger = logging.getLogger()
 
 
 def bs_price(forward_p, strike, rf, tau, sigma):
-    """Compute Black-Scholes formula in terms of forward price f.
+    """Compute Black-Scholes price (forward price based).
 
     Definitions are as in Wystup (2006).
 
@@ -319,7 +319,7 @@ def wings_iv_from_combies_iv(rr, bf, atm, delta=None):
     return res
 
 
-def strike_from_delta(delta, x, rf, y, tau, sigma, is_call):
+def strike_from_delta(delta, spot, rf, div_yield, tau, vola, is_call):
     """Calculate strike prices given delta and implied vola.
 
     Everything relevant is annualized.
@@ -328,17 +328,17 @@ def strike_from_delta(delta, x, rf, y, tau, sigma, is_call):
     ----------
     delta: float or numpy.ndarray
         of option deltas, in (frac of 1)
-    x: float
+    spot: float
         underlying price
     rf: float
         risk-free rate, in (frac of 1) p.a.
-    y: float
+    div_yield: float
         dividend yield, in (frac of 1) p.a.
     tau: float
         time to maturity, in years
-    sigma: float or numpy.ndarray
+    vola: float or numpy.ndarray
         implied vol
-    is_call: boolean
+    is_call: bool
         whether options are call options
 
     Return
@@ -349,11 +349,11 @@ def strike_from_delta(delta, x, rf, y, tau, sigma, is_call):
     # +1 for calls, -1 for puts
     phi = is_call*2 - 1.0
 
-    theta_plus = (rf - y)/sigma + sigma/2
+    theta_plus = (rf - div_yield) / vola + vola / 2
 
     # eq. (1.44) in Wystup
-    k = x * np.exp(-phi * norm.ppf(phi * delta * np.exp(y * tau)) * sigma *\
-                   np.sqrt(tau) + sigma * theta_plus * tau)
+    k = spot * np.exp(-phi * norm.ppf(phi * delta * np.exp(div_yield * tau)) * vola * \
+                      np.sqrt(tau) + vola * theta_plus * tau)
 
     return k
 
