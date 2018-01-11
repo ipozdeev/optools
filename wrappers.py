@@ -1,8 +1,8 @@
 import pandas as pd
 from scipy import integrate
-# from scipy.optimize import fsolve, minimize, differential_evolution
 import optools.functions as op_func
-import optools.helpers as op_help
+import re
+from optools.volsurface import VolatilitySmile
 import numpy as np
 import warnings
 
@@ -12,68 +12,20 @@ import warnings
 # import multiprocessing as mproc
 
 
-def iv_surf_from_combies(combies_by_delta, atm, tau, y, return_as="arrays"):
-    """Construct iv surface (vs. delta) from combinations of options.
-
-    Parameters
-    ----------
-    combies_by_delta : dict
-        of (delta: combi) pairs where combi is a Series as follows:
-            {'rr': iv of the risk reversal,
-             'bf': iv of the butterfly}
-        all ivs are in (frac of 1) p.a.
-    atm : float
-        at-the-money call volatility, in (frac of 1) p.a.
-    y : float
-        div yield (rf rate of the base currency), in (frac of 1) p.a.
-    tau : float
-        time to maturity, in years
-    return_as : str
-        output type; 'series', 'dataframe' or 'arrays'
-
-    Returns
-    -------
-    res : any
-        dependent on `return_as`
-
-    """
-    # slightly different delta of atm option
-    atm_delta = np.exp(-y * tau) *\
-        op_help.fast_norm_cdf(0.5 * atm * np.sqrt(tau))
-
-    # for each delta, calculate iv of call, concat to a Series
-    res = pd.concat(
-        [op_func.wings_iv_from_combies_iv(atm=atm, delta=k, **v)
-            for k, v in combies_by_delta.items()],
-        axis=0)
-
-    # add delta of atm
-    res.loc[atm_delta] = atm
-
-    # just in case
-    res = res.astype(float)
-
-    if return_as == "series":
-        return res
-    elif return_as == "dataframe":
-        return res.reset_index()
-    elif return_as == "arrays":
-        # disassemble the Series
-        return np.array(res.index), res.values
-
-
-def mfiv_wrapper(iv_surf, forward_p, rf, tau, smooth_method="spline",
-                 method="jiang_tian"):
+def wrapper_mfiv_from_series(series, interpolation_kwargs, estimation_kwargs):
     """Wrapper.
 
     Parameters
     ----------
-    iv_surf
-    forward_p
-    rf
-    tau
-    smooth_method
-    version
+    series : pandas.Series
+        indexed with
+        - spot
+        - forward
+        - different risk reversals and butterflies, labeled '[0-9]+(rr|bf)'
+        - rf
+        - div_yield
+        - tau
+        - atm_vola
 
     Returns
     -------
@@ -81,27 +33,40 @@ def mfiv_wrapper(iv_surf, forward_p, rf, tau, smooth_method="spline",
         mfiv, not annualized, in ((frac of 1))^2
 
     """
-    # min and max strikes
-    k_min = np.min(iv_surf["K"])
-    k_max = np.max(iv_surf["K"])
+    # no-arbitrage relationships --------------------------------------------
+    no_arb_dict = dict(
+        series.loc[["spot", "forward", "rf", "div_yield", "tau"]])
 
-    # interpolate ivs
-    iv_interp = op_func.interpolate_iv(iv_surf, method=smooth_method)
+    no_arb_series = series.update(
+        pd.Series(op_func.fill_by_no_arb(**no_arb_dict)))
 
-    # extend beyond limits: constant fashion
-    dK = np.diff(iv_interp.index).mean()
-    new_idx_left = np.arange(0.66 * forward_p, k_min, dK)
-    new_idx_right = np.arange(k_max + dK, forward_p * 1.5, dK)
-    new_idx = np.concatenate((new_idx_left, iv_interp.index, new_idx_right))
-    iv_interp = iv_interp.reindex(index=new_idx)
-    iv_interp.fillna(method="ffill", inplace=True)
-    iv_interp.fillna(method="bfill", inplace=True)
+    # time to drop na (most likely in the combinations) ---------------------
+    no_arb_series = no_arb_series.dropna()
 
-    # back to prices
-    C_interp = op_func.bs_price(forward_p, np.array(iv_interp.index), rf, tau,
-                                iv_interp.values)
+    # find combinations: these have to start with digits --------------------
+    combies_regex = re.compile("([0-9]+)[a-z]{2}")
+    deltas_str = list(set(combies_regex.findall(no_arb_series.index)))
 
-    res = op_func.mfiv(C_interp, new_idx, forward_p, rf, tau, method=method)
+    # dictionary to comply with .by_delta_from_combinations; .pop ensures
+    #   that all combies are deleted from the series, and it can be used as
+    #   **kwargs later
+    combies = dict()
+    for d in deltas_str:
+        for p in ["rr", "bf"]:
+            combies[float(d)/100] = no_arb_series.pop(d+p)
+
+    for _, v in combies.items():
+        v.index = v.index.map(lambda x: re.sub("[0-9]+", '', x))
+
+    # vol smile -------------------------------------------------------------
+    smile = VolatilitySmile.by_delta_from_combinations(
+        combies=combies, is_call=True, **no_arb_series)
+
+    new_strike = np.linspace(min(smile.strike)*2/3, max(smile.strike)*3/2, 200)
+    smile_interp = smile.interpolate(new_strike=new_strike, in_method="spline",
+                                     ex_method="const", bc_type="clamped")
+
+    res = smile_interp.get_mfiv(**estimation_kwargs)
 
     return res
 
