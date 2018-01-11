@@ -13,19 +13,22 @@ import logging
 logger = logging.getLogger()
 
 
-def bs_price(forward_p, strike, rf, tau, sigma):
-    """Compute Black-Scholes price (forward price based).
+def bs_price(forward_p, strike_p, rf, tau, vola):
+    """Compute Black-Scholes price (forward price-based).
 
     Definitions are as in Wystup (2006).
 
     Parameters
     ----------
-    forward_p
-    strike
+    forward_p : float
+        forward price
+    strike_p : float or numpy.ndarray
+        strikes prices
     rf : float
         risk-free rate, in (frac of 1) p.a.
-    tau
-    sigma : float
+    tau : float
+        maturity, in years
+    vola : float or numpy.ndarray
         volatility, in (frac of 1) p.a.
 
     Returns
@@ -34,18 +37,18 @@ def bs_price(forward_p, strike, rf, tau, sigma):
         price
     """
     # d+ and d-
-    d_plus = (np.log(forward_p / strike) + sigma**2 / 2 * tau) /\
-        (sigma * np.sqrt(tau))
-    d_minus = d_plus - sigma*np.sqrt(tau)
+    d_plus = (np.log(forward_p / strike_p) + vola ** 2 / 2 * tau) / \
+             (vola * np.sqrt(tau))
+    d_minus = d_plus - vola * np.sqrt(tau)
 
     res = np.exp(-rf * tau) *\
-        (forward_p * fast_norm_cdf(d_plus) - strike * fast_norm_cdf(d_minus))
+        (forward_p * fast_norm_cdf(d_plus) - strike_p * fast_norm_cdf(d_minus))
 
     # return
     return res
 
 
-def call_to_put(call_p, strike, forward_p, rf, tau):
+def call_to_put(call_p, strike_p, forward_p, rf, tau):
     """Calculate price of put from the put-call parity relation.
 
     Vectorized for call_p, strike
@@ -54,7 +57,7 @@ def call_to_put(call_p, strike, forward_p, rf, tau):
     ----------
     call_p : float or numpy.array
         call price
-    strike : float or numpy.array
+    strike_p : float or numpy.array
         strike price
     forward_p : float
         forward price of the underlying
@@ -68,7 +71,7 @@ def call_to_put(call_p, strike, forward_p, rf, tau):
     p : float or numpy.array
         put price
     """
-    p = call_p - forward_p * np.exp(-rf * tau) + strike * np.exp(-rf * tau)
+    p = call_p - forward_p * np.exp(-rf * tau) + strike_p * np.exp(-rf * tau)
 
     return p
 
@@ -295,8 +298,7 @@ def wings_iv_from_combies_iv(rr, bf, atm, delta=None):
     Returns
     -------
     res : list or pandas.Series
-        of implied volas, indexed by deltas (`delta`, 1-`delta`) if `delta`
-        was provided
+        of implied volas; pandasSeries indexed by delta if `delta` was provided
 
     """
     # implied volas
@@ -352,8 +354,9 @@ def strike_from_delta(delta, spot, rf, div_yield, tau, vola, is_call):
     theta_plus = (rf - div_yield) / vola + vola / 2
 
     # eq. (1.44) in Wystup
-    k = spot * np.exp(-phi * norm.ppf(phi * delta * np.exp(div_yield * tau)) * vola * \
-                      np.sqrt(tau) + vola * theta_plus * tau)
+    k = spot * \
+        np.exp(-phi * norm.ppf(phi * delta * np.exp(div_yield * tau)) *
+               vola * np.sqrt(tau) + vola * theta_plus * tau)
 
     return k
 
@@ -379,7 +382,7 @@ def mfiv(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
     Returns
     -------
     res : float
-        mfiv, in (frac of 1) per period tau
+        mfiv, in (frac of 1) p.a.
 
     """
     if method == "jiang_tian":
@@ -409,8 +412,56 @@ def mfiv(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
     else:
         raise NameError("Method not allowed!")
 
+    # annualize
+    res /= tau
+
     return res
 
+
+def fill_by_no_arb(spot, forward, rf, div_yield, tau):
+    """
+
+    Parameters
+    ----------
+    spot
+    forward
+    rf : float
+        in (frac of 1) p.a.
+    div_yield : float
+        in (frac of 1) p.a.
+    tau : float
+        maturity, in years
+
+    Returns
+    -------
+    args : dict
+        same arguments,
+    """
+    if (tau is None) | np.isnan(tau):
+        raise ValueError("Maturity not provided!")
+
+    # collect all arguments
+    args = locals()
+
+    # find one nan
+    where_nan = {k: v for k, v in args.items() if np.isnan(v)}
+
+    if len(where_nan) > 1:
+        raise ValueError("Only one argument can be missing!")
+
+    k, v = list(where_nan.items())[0]
+
+    # no-arb relationships
+    if k == "spot":
+        args["spot"] = forward / np.exp((rf - div_yield) * tau)
+    elif k == "forward":
+        args["forward"] = spot * np.exp((rf - div_yield) * tau)
+    elif k == "rf":
+        args["rf"] = np.log(forward / spot) / tau + div_yield
+    elif k == "div_yield":
+        args["div_yield"] = rf - np.log(forward / spot) / tau
+
+    return args
 
 # def estimate_rnd(c_true, f_true, strike, rf, is_iv, W, opt_meth, **kwargs):
 #     """Fit parameters of mixture of two log-normals to market data.
@@ -794,3 +845,6 @@ def mfiv(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
 #     res = pd.Series(data=d2C, index=K_pred)
 #
 #     return res
+
+if __name__ == "__main__":
+    fill_by_no_arb()
