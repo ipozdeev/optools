@@ -4,8 +4,48 @@ from foolbox.data_mgmt import set_credentials as set_cred
 from foolbox.utils import parse_bloomberg_excel
 from os import listdir
 
+# path to all data files
 path_to_data = set_cred.set_path("option_implied_betas_project/data/raw/",
                                  which="gdrive")
+
+
+def fetch_deriv_data():
+    """
+    """
+    # all files + get rid of temp files
+    files = [p for p in listdir(path_to_data + "temp_deriv/")
+             if (p[0] != '~') & p.endswith("xlsx")]
+
+    deriv = dict()
+
+    for f in files:
+        print(f)
+        filename = f[:6]
+
+        # excel files
+        data = parse_bloomberg_excel(path_to_data + "temp_deriv/" + f,
+                                     data_sheets=None,
+                                     colnames_sheet="contracts", space=0,
+                                     skiprows=7)
+
+        deriv[filename] = data
+
+    with open(path_to_data + "pickles/deriv.p", mode="wb") as hangar:
+        pickle.dump(deriv, hangar)
+
+
+def fetch_spot():
+    """
+    """
+    # spot
+    spot = parse_bloomberg_excel(
+        path_to_data + "deriv/spot_pairs_2000_2018_d.xlsx",
+        data_sheets="spot",
+        colnames_sheet="xxxyyy", space=1,
+        skiprows=1)
+
+    with open(path_to_data + "pickles/spot.p", mode="wb") as hangar:
+        pickle.dump(spot, hangar)
 
 
 def fetch_imp_exp_data():
@@ -38,27 +78,6 @@ def fetch_imp_exp_data():
     return all_data
 
 
-def fetch_deriv_data():
-    """
-    """
-    # all files + get rid of temp files
-    files = [p for p in listdir(path_to_data + "deriv/") if p[0] != '~']
-
-    res = dict()
-
-    for f in files:
-        filename = f[:6]
-
-        data = parse_bloomberg_excel(path_to_data + "deriv/" + f,
-                                     data_sheets=None,
-                                     colnames_sheet="contracts", space=0,
-                                     skiprows=7)
-
-        res[filename] = data
-
-    return res
-
-
 if __name__ == "__main__":
 
     # all_data = fetch_imp_exp_data()
@@ -66,7 +85,6 @@ if __name__ == "__main__":
     # with open(path_to_data + "raw/pickles/" + "imp_exp.p", mode="wb") as hngr:
     #     pickle.dump(obj=all_data, file=hngr)
 
-    data_deriv = fetch_deriv_data()
+    fetch_deriv_data()
 
-    with open(path_to_data + "pickles/" + "deriv.p", mode="wb") as hngr:
-        pickle.dump(obj=data_deriv, file=hngr)
+    fetch_spot()

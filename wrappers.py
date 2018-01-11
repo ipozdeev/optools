@@ -63,8 +63,8 @@ def wrapper_mfiv_from_series(series, interpolation_kwargs, estimation_kwargs):
         combies=combies, is_call=True, **no_arb_series)
 
     new_strike = np.linspace(min(smile.strike)*2/3, max(smile.strike)*3/2, 200)
-    smile_interp = smile.interpolate(new_strike=new_strike, in_method="spline",
-                                     ex_method="const", bc_type="clamped")
+    smile_interp = smile.interpolate(new_strike=new_strike,
+                                     **interpolation_kwargs)
 
     res = smile_interp.get_mfiv(**estimation_kwargs)
 

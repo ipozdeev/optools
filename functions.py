@@ -437,9 +437,6 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau):
     args : dict
         same arguments,
     """
-    if (tau is None) | np.isnan(tau):
-        raise ValueError("Maturity not provided!")
-
     # collect all arguments
     args = locals()
 
@@ -448,6 +445,12 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau):
 
     if len(where_nan) > 1:
         raise ValueError("Only one argument can be missing!")
+    if len(where_nan) < 1:
+        return args
+
+    # tau needs to be set
+    if (tau is None) | np.isnan(tau):
+        raise ValueError("Maturity not provided!")
 
     k, v = list(where_nan.items())[0]
 
