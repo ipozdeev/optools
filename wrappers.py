@@ -12,7 +12,7 @@ import warnings
 # import multiprocessing as mproc
 
 
-def wrapper_mfiv_from_series(series, interpolation_kwargs, estimation_kwargs):
+def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs):
     """Wrapper.
 
     Parameters
@@ -24,49 +24,50 @@ def wrapper_mfiv_from_series(series, interpolation_kwargs, estimation_kwargs):
         - different risk reversals and butterflies, labeled '[0-9]+(rr|bf)'
         - rf
         - div_yield
-        - tau
         - atm_vola
+    tau : float
+        maturity, in years
+    intpl_kwargs : dict
+
+    estim_kwargs : dict
 
     Returns
     -------
     res : scalar
-        mfiv, not annualized, in ((frac of 1))^2
+        mfiv, in ((frac of 1))^2 p.a.
 
     """
-    # no-arbitrage relationships --------------------------------------------
-    no_arb_dict = dict(
-        series.loc[["spot", "forward", "rf", "div_yield", "tau"]])
-
-    no_arb_series = series.update(
-        pd.Series(op_func.fill_by_no_arb(**no_arb_dict)))
-
-    # time to drop na (most likely in the combinations) ---------------------
-    no_arb_series = no_arb_series.dropna()
-
     # find combinations: these have to start with digits --------------------
-    combies_regex = re.compile("([0-9]+)[a-z]{2}")
-    deltas_str = list(set(combies_regex.findall(no_arb_series.index)))
+    combies_regex = re.compile("[0-9]+[a-z]{2}")
+    combies_names = list(filter(combies_regex.match, series.index))
+    group_fun = lambda x: int(x[:2])/100
 
-    # dictionary to comply with .by_delta_from_combinations; .pop ensures
-    #   that all combies are deleted from the series, and it can be used as
-    #   **kwargs later
-    combies = dict()
-    for d in deltas_str:
-        for p in ["rr", "bf"]:
-            combies[float(d)/100] = no_arb_series.pop(d+p)
-
-    for _, v in combies.items():
-        v.index = v.index.map(lambda x: re.sub("[0-9]+", '', x))
+    # group by delta, rename from '25rr' to 'rr' etc.
+    rename_dict = {k: k[2:] for k in combies_names}
+    combies = {
+        k: v.rename(rename_dict)
+        for k, v in series.loc[combies_names].dropna().groupby(group_fun)
+    }
 
     # vol smile -------------------------------------------------------------
     smile = VolatilitySmile.by_delta_from_combinations(
-        combies=combies, is_call=True, **no_arb_series)
+        combies=combies,
+        atm_vola=series.loc["atm_vola"],
+        spot=series.loc["spot"],
+        forward=series.loc["forward"],
+        rf=series.loc["rf"],
+        div_yield=series.loc["div_yield"],
+        tau=tau)
 
-    new_strike = np.linspace(min(smile.strike)*2/3, max(smile.strike)*3/2, 200)
+    # range
+    strike_rng = np.ptp(smile.strike)
+    new_strike = np.arange(max(strike_rng/2, min(smile.strike) - strike_rng*2),
+                           max(smile.strike) + strike_rng*2,
+                           strike_rng/125)
     smile_interp = smile.interpolate(new_strike=new_strike,
-                                     **interpolation_kwargs)
+                                     **intpl_kwargs)
 
-    res = smile_interp.get_mfiv(**estimation_kwargs)
+    res = smile_interp.get_mfiv(**estim_kwargs)
 
     return res
 
