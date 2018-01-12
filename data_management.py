@@ -3,6 +3,8 @@ import pickle
 from foolbox.data_mgmt import set_credentials as set_cred
 from foolbox.utils import parse_bloomberg_excel
 from os import listdir
+from optools.functions import fill_by_no_arb
+from optools.helpers import maturity_str_to_float
 
 # path to all data files
 path_to_data = set_cred.set_path("option_implied_betas_project/data/raw/",
@@ -48,6 +50,112 @@ def fetch_spot():
         pickle.dump(spot, hangar)
 
 
+def organize_data_for_mfiv(which_pair=None, which_mat=None):
+    """
+    """
+    # flag_1d_pair = False
+    # flag_1d_mat = False
+
+    if which_pair is not None:
+        if not isinstance(which_pair, (list, tuple)):
+            # flag_1d_pair = True
+            which_pair = [which_pair, ]
+
+    if which_mat is not None:
+        if not isinstance(which_mat, (list, tuple)):
+            # flag_1d_mat = True
+            which_mat = [which_mat, ]
+
+    # read in ---------------------------------------------------------------
+    deriv = pd.read_pickle(path_to_data + "pickles/deriv.p")
+    spot = pd.read_pickle(path_to_data + "pickles/spot.p")
+    rf = pd.read_pickle(path_to_data + "pickles/ois_bloomi_1w_30y.p")
+
+    # loop over currency pairs
+    all_pair = dict()
+
+    for pair in (deriv.keys() if which_pair is None else which_pair):
+
+        # select this pair's data
+        v = deriv[pair]
+
+        # base currency, counter currency
+        xxx, yyy = pair[:3], pair[3:]
+
+        # scale: a xxxjpy pip is .001
+        scale = 100 if yyy == "jpy" else 10000
+
+        # loop over maturities ----------------------------------------------
+        all_mat = dict()
+
+        for mat in (v.keys() if which_mat is None else which_mat):
+
+            tau = maturity_str_to_float(mat)
+
+            # select this maturity
+            vv = v[mat]
+
+            # spot ----------------------------------------------------------
+            this_s = spot.loc[:, pair].copy().rename("spot")
+
+            # forward -------------------------------------------------------
+            # from forward points to forward prices
+            this_f = (this_s + vv.pop("forward") / scale).rename("forward")
+
+            # risk-free rates -----------------------------------------------
+            # are usually in percent, not in (frac of 1)
+            this_rf = rf[mat].loc[:, yyy].rename("rf") / 100
+            this_div = rf[mat].loc[:, xxx].rename("div_yield") / 100
+
+            # try to fill by no-arb relations -------------------------------
+            # concat
+            sfrd = pd.concat((this_s, this_f, this_rf, this_div), axis=1)
+
+            # loop over time
+            sfrd_no_arb = sfrd.copy()
+            for t, row in sfrd.iterrows():
+                # print(t)
+                sfrd_no_arb.loc[t, :] = \
+                    fill_by_no_arb(tau=tau, raise_errors=False, **dict(row))
+
+            # combinations --------------------------------------------------
+            # drop rows where atm is missing - no use
+            vv = vv.dropna(subset=["atm_vola"])
+
+            # group by delta, delete those (rr, bf) pairs where wither rr or
+            #   bf is missing
+            group_fun = lambda x: x[:2]
+
+            # these will have at least two values in a row
+            these_combies = pd.concat(
+                [c.dropna() for _, c in
+                 vv.drop("atm_vola", axis=1).groupby(by=group_fun, axis=1)],
+                axis=1)
+
+            # ffill risk-free rates
+            sfrd_no_arb.loc[:, ["rf", "div_yield"]] = \
+                sfrd_no_arb.loc[:, ["rf", "div_yield"]].ffill(limit=1)
+
+            # combine everything, drop na beforehand, convert vola to
+            #   (frac of 1)
+            this_res = pd.concat(
+                [these_combies / 100,
+                 vv.loc[:, "atm_vola"].dropna() / 100,
+                 sfrd_no_arb.dropna()], axis=1, join="inner")
+
+            all_mat[mat] = this_res
+
+        # if flag_1d_mat:
+        #     all_mat = all_mat[which_mat[0]]
+
+        all_pair[pair] = all_mat
+
+    # if flag_1d_pair:
+    #     all_pair = all_pair[which_pair[0]]
+
+    return all_pair
+
+
 def fetch_imp_exp_data():
     """
     """
@@ -87,4 +195,16 @@ if __name__ == "__main__":
 
     fetch_deriv_data()
 
-    fetch_spot()
+    # fetch_spot()
+
+    # ir_0 = pd.read_pickle(path_to_data + "pickles/" + "ir_bloomi.p")
+    # ir_1 = pd.read_pickle(set_cred.set_path("research_data/fx_and_events/") +
+    #                       "ois_bloomi_1w_30y.p")
+    # ir_0 = ir_0["1m"]
+    # ir_1 = ir_1["1m"]
+    #
+    # cur = "chf"
+    # both = pd.concat(
+    #     (ir_0.loc[:, cur].rename("depo"), ir_1.loc[:, cur].rename("ois")),
+    #     axis=1)
+    # both.plot()
