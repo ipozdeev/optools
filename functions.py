@@ -418,7 +418,7 @@ def mfiv(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
     return res
 
 
-def fill_by_no_arb(spot, forward, rf, div_yield, tau):
+def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
     """
 
     Parameters
@@ -438,13 +438,16 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau):
         same arguments,
     """
     # collect all arguments
-    args = locals()
+    args = {"spot": spot, "forward": forward, "rf": rf, "div_yield": div_yield}
 
     # find one nan
     where_nan = {k: v for k, v in args.items() if np.isnan(v)}
 
     if len(where_nan) > 1:
-        raise ValueError("Only one argument can be missing!")
+        if raise_errors:
+            raise ValueError("Only one argument can be missing!")
+        else:
+            return args
     if len(where_nan) < 1:
         return args
 
