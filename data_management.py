@@ -50,6 +50,63 @@ def fetch_spot():
         pickle.dump(spot, hangar)
 
 
+def fetch_rf():
+    """
+    """
+    # ois -------------------------------------------------------------------
+    f_ois = set_cred.set_path("research_data/fx_and_events/") + \
+        "ois_bloomi_1w_30y.p"
+    ois = pd.read_pickle(f_ois)
+
+    # deposit rates ---------------------------------------------------------
+    f_depo = path_to_data + "ir/deposit_rates_2000_2017_d.xlsx"
+    depo = parse_bloomberg_excel(f_depo, data_sheets=None,
+                                 colnames_sheet="iso", space=1, skiprows=1)
+    # depo = pd.concat(depo, axis=1)
+    # depo.columns.names = ["maturity", "currency"]
+    # depo = depo.swaplevel("maturity", "currency", axis=1)
+    # depo = {k: depo[k] for k in depo.columns.levels[0]}
+
+    with open(path_to_data + "pickles/depo.p", mode="wb") as hangar:
+        pickle.dump(depo, hangar)
+
+    # libor -----------------------------------------------------------------
+    f_libor = path_to_data + "ir/libor_2000_2017_d.xlsx"
+    libor = parse_bloomberg_excel(f_libor, data_sheets=None,
+                                  colnames_sheet="iso", space=1, skiprows=1)
+    # libor = pd.concat(libor, axis=1)
+    # libor.columns.names = ["maturity", "currency"]
+    # libor = libor.swaplevel("maturity", "currency", axis=1)
+    # libor = {k: libor[k] for k in libor.columns.levels[0]}
+
+    with open(path_to_data + "pickles/libor.p", mode="wb") as hangar:
+        pickle.dump(libor, hangar)
+
+    # merge, set priority to ois - depo - libor
+    merged = dict()
+    for k in list(set(
+            list(libor.keys()) + list(depo.keys()) + list(ois.keys()))):
+        this_ois = ois.get(k, pd.DataFrame({}))
+        this_libor = libor.get(k, pd.DataFrame({}))
+        this_depo = depo.get(k, pd.DataFrame({}))
+
+        this_df = pd.DataFrame(
+            index=this_ois.index.union(this_libor.index.union(
+                this_depo.index)),
+            columns=this_ois.columns.union(this_libor.columns.union(
+                this_depo.columns)))
+
+        merged[k] = this_df.fillna(this_ois)\
+            .fillna(this_libor)\
+            .fillna(this_depo)
+
+    with open(path_to_data + "pickles/merged_ois_depo_libor.p", mode="wb") \
+            as hangar:
+        pickle.dump(merged, hangar)
+
+    return
+
+
 def organize_data_for_mfiv(which_pair=None, which_mat=None):
     """
     """
@@ -193,7 +250,11 @@ if __name__ == "__main__":
     # with open(path_to_data + "raw/pickles/" + "imp_exp.p", mode="wb") as hngr:
     #     pickle.dump(obj=all_data, file=hngr)
 
-    fetch_deriv_data()
+    # fetch_rf()
+
+    data = pd.read_pickle(path_to_data + "pickles/merged_ois_depo_libor.p")
+    data.keys()
+
 
     # fetch_spot()
 
