@@ -11,7 +11,7 @@ path_to_data = set_cred.set_path("option_implied_betas_project/data/raw/",
 
 
 def recipe_mfiv(which_mat="1m", which_pair="eurchf", intpl_kwargs=None,
-                estim_kwargs=None):
+                estim_kwargs=None, **kwargs):
     """
 
     Parameters
@@ -24,6 +24,8 @@ def recipe_mfiv(which_mat="1m", which_pair="eurchf", intpl_kwargs=None,
         of keyword args to VolatilitySmile.interpolate
     estim_kwargs : dict
         of keyword args to VolatilitySmile.get_mfiv
+    **kwargs : dict
+        additional args to organize_mfiv_data, e.g. rf_pickle
 
     Returns
     -------
@@ -32,7 +34,8 @@ def recipe_mfiv(which_mat="1m", which_pair="eurchf", intpl_kwargs=None,
 
     """
     # data ------------------------------------------------------------------
-    data = organize_data_for_mfiv(which_pair=which_pair, which_mat=which_mat)
+    data = organize_data_for_mfiv(which_pair=which_pair, which_mat=which_mat,
+                                  **kwargs)
 
     # CIP relations: rate priority ------------------------------------------
     no_arb_preference = ["chf", "usd", "eur", "gbp", "jpy", "aud", "nzd",
@@ -68,7 +71,7 @@ def recipe_mfiv(which_mat="1m", which_pair="eurchf", intpl_kwargs=None,
 
             for t, row in this_data.iterrows():
 
-                # if t > pd.to_datetime("2015-01-14"):
+                # if t > pd.to_datetime("2012-09-19"):
                 #     print("there")
 
                 # no-arbitrage relationships --------------------------------
@@ -82,6 +85,9 @@ def recipe_mfiv(which_mat="1m", which_pair="eurchf", intpl_kwargs=None,
                                                      intpl_kwargs,
                                                      estim_kwargs)
 
+                # remove non-positive values
+                this_res = this_res.mask(this_res <= 0, np.nan)
+
             res_mat.append(this_res)
 
         res[pair] = pd.concat(res_mat, axis=1)
@@ -90,33 +96,38 @@ def recipe_mfiv(which_mat="1m", which_pair="eurchf", intpl_kwargs=None,
 
 
 if __name__ == "__main__":
-    # import matplotlib.pyplot as plt
-    # import pickle
-    #
-    # in_kwargs = {
-    #     "in_method": "spline",
-    #     "ex_method": "constant"
-    # }
-    #
-    # est_kwargs = {
-    #     "method": "jiang_tian"
-    # }
-    #
-    # res = dict()
-    #
+    import matplotlib.pyplot as plt
+    import pickle
+
+    in_kwargs = {
+        "in_method": "spline",
+        "bc_type": "clamped",
+        "ex_method": "constant"
+    }
+
+    est_kwargs = {
+        "method": "jiang_tian"
+    }
+
+    # res = recipe_mfiv(which_mat="1m", which_pair="eurchf",
+    #                   intpl_kwargs=in_kwargs,
+    #                   estim_kwargs=est_kwargs,
+    #                   rf_pickle="depo.p")
+
     # for bc_type in ["natural", "clamped"]:
     #     in_kwargs.update({"bc_type": bc_type})
     #
-    #     res[bc_type] = recipe_mfiv(which_mat="1m", in_kwargs=in_kwargs,
-    #                                est_kwargs=est_kwargs)
-    #
-    # with open(path_to_data + "../estimates/compare_mfivs.p", mode="wb") as h:
+    #     res[bc_type] = recipe_mfiv(which_mat="1m", which_pair="audchf",
+    #                                intpl_kwargs=in_kwargs,
+    #                                estim_kwargs=est_kwargs)
+
+    # with open(path_to_data+"../estimates/mfiv_eurchf_depo.p", mode="wb") as h:
     #     pickle.dump(res, h)
 
-    data = pd.read_pickle(path_to_data + "../estimates/compare_mfivs.p")
-
-
-
+    data_ois = pd.read_pickle(path_to_data +
+                                "../estimates/mfiv_eurchf_ois.p")
+    data_depo = pd.read_pickle(path_to_data +
+                               "../estimates/mfiv_eurchf_depo.p")
 
 
 
