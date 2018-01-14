@@ -107,11 +107,23 @@ def fetch_rf():
     return
 
 
-def organize_data_for_mfiv(which_pair=None, which_mat=None):
+def organize_data_for_mfiv(which_pair=None, which_mat=None,
+                           rf_pickle=None):
     """
+    Parameters
+    ----------
+    which_pair : str or list
+        e.g. 'eurchf'
+    which_mat : str or list
+        e.g. '2w' or '1y'
+    rf_pickle : str
+        pickle name with '.p' extension, e.g. 'ois_bloomi_1w_30y.p'
     """
     # flag_1d_pair = False
     # flag_1d_mat = False
+
+    if rf_pickle is None:
+        rf_pickle = "merged_ois_depo_libor.p"
 
     if which_pair is not None:
         if not isinstance(which_pair, (list, tuple)):
@@ -126,7 +138,7 @@ def organize_data_for_mfiv(which_pair=None, which_mat=None):
     # read in ---------------------------------------------------------------
     deriv = pd.read_pickle(path_to_data + "pickles/deriv.p")
     spot = pd.read_pickle(path_to_data + "pickles/spot.p")
-    rf = pd.read_pickle(path_to_data + "pickles/ois_bloomi_1w_30y.p")
+    rf = pd.read_pickle(path_to_data + "pickles/" + rf_pickle)
 
     # loop over currency pairs
     all_pair = dict()
@@ -134,7 +146,7 @@ def organize_data_for_mfiv(which_pair=None, which_mat=None):
     for pair in (deriv.keys() if which_pair is None else which_pair):
 
         # select this pair's data
-        v = deriv[pair]
+        v = {key.lower(): value for key, value in deriv[pair].items()}
 
         # base currency, counter currency
         xxx, yyy = pair[:3], pair[3:]
@@ -146,6 +158,9 @@ def organize_data_for_mfiv(which_pair=None, which_mat=None):
         all_mat = dict()
 
         for mat in (v.keys() if which_mat is None else which_mat):
+
+            if any([mat not in p.keys() for p in [rf, v]]):
+                continue
 
             tau = maturity_str_to_float(mat)
 
