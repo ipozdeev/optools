@@ -27,11 +27,17 @@ def maturity_str_to_float(mat):
     -------
 
     """
+    int_part = int(mat[:-1])
+
     if mat.endswith('m'):
-        res = int(mat[:-1]) / 12.0
+        scale = 12.0
     elif mat.endswith('y'):
-        res = float(mat[:-1])
+        scale = 1.0
+    elif mat.endswith('w'):
+        scale = 52.0
     else:
-        raise ValueError("Maturity string must end with 'm' or 'y'!")
+        raise ValueError("Maturity string must end with 'm', 'y' or 'w'!")
+
+    res = int_part / scale
 
     return res
