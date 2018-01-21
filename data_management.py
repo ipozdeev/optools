@@ -4,7 +4,7 @@ from foolbox.data_mgmt import set_credentials as set_cred
 from foolbox.utils import parse_bloomberg_excel
 from os import listdir
 from optools.functions import fill_by_no_arb
-from optools.helpers import maturity_str_to_float
+from optools.helpers import *
 
 # path to all data files
 path_to_data = set_cred.set_path("option_implied_betas_project/data/raw/",
@@ -98,7 +98,8 @@ def fetch_rf():
 
         merged[k] = this_df.fillna(this_ois)\
             .fillna(this_libor)\
-            .fillna(this_depo)
+            .fillna(this_depo)\
+            .astype(float)
 
     with open(path_to_data + "pickles/merged_ois_depo_libor.p", mode="wb") \
             as hangar:
@@ -177,7 +178,12 @@ def organize_data_for_mfiv(which_pair=None, which_mat=None,
             # risk-free rates -----------------------------------------------
             # are usually in percent, not in (frac of 1)
             this_rf = rf[mat].loc[:, yyy].rename("rf") / 100
+            # to continuous rates
+            this_rf = disc_to_cont(this_rf, tau=tau)
+
+            # same with dividend rates (base currency rates)
             this_div = rf[mat].loc[:, xxx].rename("div_yield") / 100
+            this_div = disc_to_cont(this_div, tau=tau)
 
             # try to fill by no-arb relations -------------------------------
             # concat
@@ -265,10 +271,10 @@ if __name__ == "__main__":
     # with open(path_to_data + "raw/pickles/" + "imp_exp.p", mode="wb") as hngr:
     #     pickle.dump(obj=all_data, file=hngr)
 
-    # fetch_rf()
+    fetch_rf()
 
-    data = pd.read_pickle(path_to_data + "pickles/merged_ois_depo_libor.p")
-    data.keys()
+    # data = pd.read_pickle(path_to_data + "pickles/merged_ois_depo_libor.p")
+    # data.keys()
 
 
     # fetch_spot()
