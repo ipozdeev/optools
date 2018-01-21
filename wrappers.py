@@ -67,7 +67,7 @@ def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs):
     smile_interp = smile.interpolate(new_strike=new_strike,
                                      **intpl_kwargs)
 
-    res = smile_interp.get_mfiv(**estim_kwargs)
+    res = smile_interp.get_mfivariance(**estim_kwargs)
 
     return res
 
@@ -102,7 +102,7 @@ def mfiskew_wrapper(iv_surf, forward_p, rf, tau, spot_p, method="spline"):
     P = op_func.call_to_put(
         call_p=c_interp[iv_interp.index <= spot_p],
         strike=K_P,
-        forward_p=forward_p,
+        forward=forward_p,
         rf=rf,
         tau=tau)
 

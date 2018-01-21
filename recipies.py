@@ -109,10 +109,10 @@ if __name__ == "__main__":
         "method": "jiang_tian"
     }
 
-    # res = recipe_mfiv(which_mat="1m", which_pair="eurchf",
-    #                   intpl_kwargs=in_kwargs,
-    #                   estim_kwargs=est_kwargs,
-    #                   rf_pickle="depo.p")
+    res = recipe_mfiv(which_mat="1m", which_pair="eurchf",
+                      intpl_kwargs=in_kwargs,
+                      estim_kwargs=est_kwargs,
+                      rf_pickle="merged_ois_depo_libor.p")
 
     # for bc_type in ["natural", "clamped"]:
     #     in_kwargs.update({"bc_type": bc_type})
@@ -124,11 +124,16 @@ if __name__ == "__main__":
     # with open(path_to_data+"../estimates/mfiv_eurchf_depo.p", mode="wb") as h:
     #     pickle.dump(res, h)
 
-    data_ois = pd.read_pickle(path_to_data +
-                                "../estimates/mfiv_eurchf_ois.p")
-    data_depo = pd.read_pickle(path_to_data +
-                               "../estimates/mfiv_eurchf_depo.p")
+    # data_ois = pd.read_pickle(path_to_data +
+    #                             "../estimates/mfiv_eurchf_ois.p")
+    # data_depo = pd.read_pickle(path_to_data +
+    #                            "../estimates/mfiv_eurchf_depo.p")
 
+    with pd.HDFStore(path_to_data + "../estimates/mfiv_3m.h5", mode='r') as h:
+        mfiv_old = h["mfiv"]
+
+    with pd.HDFStore(path_to_data + "../estimates/mfiv.h5", mode='r') as h:
+        mfiv_new = h.get("eurchf/m1m")
 
 
 
