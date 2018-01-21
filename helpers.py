@@ -41,3 +41,26 @@ def maturity_str_to_float(mat):
     res = int_part / scale
 
     return res
+
+
+def disc_to_cont(rate, tau):
+    """Transfrom a dicrete rate to continuously compounded one.
+
+    Only 30/360 convention is implemented.
+
+    Parameters
+    ----------
+    rate : float or numpy.ndarray-like
+        rate, in (frac of 1) p.a.
+    tau : float
+        maturity, in years
+
+    Returns
+    -------
+    res : float or numpy.ndarray
+        of continuously compounded rates
+
+    """
+    res = np.log(1 + rate*tau) / tau
+
+    return res
