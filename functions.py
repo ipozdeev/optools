@@ -3,26 +3,17 @@ import numpy as np
 from optools.helpers import fast_norm_cdf
 from scipy.stats import norm
 from scipy.optimize import fsolve
-from scipy import interpolate, integrate
-from statsmodels.nonparametric.kernel_regression import KernelReg
-
-# from scipy.optimize import minimize, differential_evolution
-
-# logging
-import logging
-logger = logging.getLogger()
+from scipy import integrate
 
 
-def bs_price(forward_p, strike_p, rf, tau, vola):
-    """Compute Black-Scholes price (forward price-based).
+def bs_price(strike, rf, tau, vola, div_yield=None, spot=None, forward=None):
+    """Compute the Black-Scholes option price.
 
-    Definitions are as in Wystup (2006).
+    Vectorized for `strike` and `vola`. Definitions are as in Wystup (2006).
 
     Parameters
     ----------
-    forward_p : float
-        forward price
-    strike_p : float or numpy.ndarray
+    strike : float or numpy.ndarray
         strikes prices
     rf : float
         risk-free rate, in (frac of 1) p.a.
@@ -30,26 +21,38 @@ def bs_price(forward_p, strike_p, rf, tau, vola):
         maturity, in years
     vola : float or numpy.ndarray
         volatility, in (frac of 1) p.a.
+    div_yield : float
+        dividend yield
+    spot : float
+        spot price of the underlying
+    forward : float
+        forward price of the underlying
 
     Returns
     -------
     res : float
-        price
+        price or numpy.ndarray
     """
+    if forward is None:
+        try:
+            forward = spot * np.exp((rf - div_yield)*tau)
+        except TypeError:
+            raise TypeError("Make sure to provide rf, div_yield and spot!")
+
     # d+ and d-
-    d_plus = (np.log(forward_p / strike_p) + vola ** 2 / 2 * tau) / \
+    d_plus = (np.log(forward / strike) + vola ** 2 / 2 * tau) / \
              (vola * np.sqrt(tau))
     d_minus = d_plus - vola * np.sqrt(tau)
 
     res = np.exp(-rf * tau) *\
-        (forward_p * fast_norm_cdf(d_plus) - strike_p * fast_norm_cdf(d_minus))
+        (forward * fast_norm_cdf(d_plus) - strike * fast_norm_cdf(d_minus))
 
     # return
     return res
 
 
-def call_to_put(call_p, strike_p, forward_p, rf, tau):
-    """Calculate price of put from the put-call parity relation.
+def call_to_put(call_p, strike, forward, rf, tau):
+    """Calculate the put price from the put-call parity relation.
 
     Vectorized for call_p, strike
 
@@ -57,9 +60,9 @@ def call_to_put(call_p, strike_p, forward_p, rf, tau):
     ----------
     call_p : float or numpy.array
         call price
-    strike_p : float or numpy.array
+    strike : float or numpy.array
         strike price
-    forward_p : float
+    forward : float
         forward price of the underlying
     rf : float
         risk-free rate, in (frac of 1) p.a.
@@ -71,103 +74,12 @@ def call_to_put(call_p, strike_p, forward_p, rf, tau):
     p : float or numpy.array
         put price
     """
-    p = call_p - forward_p * np.exp(-rf * tau) + strike_p * np.exp(-rf * tau)
+    p = call_p - forward * np.exp(-rf * tau) + strike * np.exp(-rf * tau)
 
     return p
 
 
-def interpolate_iv(iv_surf, method="spline", x_pred=None):
-    """Interpolate iv surface.
-
-    Spline interpolation is only supported for 2D data: iv ~ strikes.
-    Kernel regression interpolation is supported for 2D and 3D data:
-    iv ~ strikes + tau.
-    Parameters
-    ----------
-    iv_surf : pandas.DataFrame
-        with columns "K" for strikes, "iv" for implied volatilities, and
-        (optional) "tau" for maturity, in years.
-    method : str
-        "spline" or "kernel".
-    x_pred : pandas.DataFrame
-        with the same columns as `iv_surf` except for "iv".
-
-    Returns
-    -------
-    rse : pd.Series
-        indexed with new strikes and containing interpolated iv
-    """
-    # sort values: needed for spline to work properly
-    iv_surf = iv_surf.sort_values(by="K", axis=0)
-
-    # response is iv
-    endog = iv_surf["iv"].values
-
-    # if K_pred missing, use linspace over range of provided K;
-    # also, everything should be lists (for kernel regression to work)
-    if x_pred is None:
-        x_pred = [np.linspace(np.min(iv_surf["K"]), np.max(iv_surf["K"]),
-                              np.ceil(np.ptp(iv_surf["K"])/0.005)), ]
-    else:
-        # turn columns of df into list elements
-        x_pred = list(x_pred.values.T)
-
-    # var_type for kernel regression: see KernelReg for details
-    var_type = ['c',] + (['u',] if iv_surf.shape[1] > 2 else [])
-
-    # regressors, as a list
-    exog = list(iv_surf.drop(["iv",], axis=1).values.T)
-
-    # if iv_surf.shape[1] > 2:
-    #     if tau is None:
-    #         raise NameError("Maturity of interpolated series not provided")
-    #     else:
-    #         # make list out of provided maturity
-    #         exog += [iv_surf["tau"].values, ]
-    #         x_pred += [np.array([tau,]*len(K_pred)),]
-    #     var_type += ['u',]
-
-    # method
-    if method == "spline":
-        if iv_surf.shape[1] > 2:
-            raise NotImplementedError("Not possible")
-            # # convert to ndarrays
-            # exog_df = pd.DataFrame(index=np.unique(exog[0]),
-            #     columns=np.unique(exog[1]), dtype=np.float)*np.nan
-            # for p in range(len(exog[0])):
-            #     exog_df.loc[exog[0][p], exog[1][p]] = endog[p]
-            #
-            # endog_mat = exog_df.values
-            #
-            # x, y = np.meshgrid(exog_df.index, exog_df.columns, indexing="ij")
-            # tck = interpolate.bisplrep(x, y, endog_mat, s=0)
-            #
-            # print(x_pred[0])
-            # # xnew, ynew = np.meshgrid(x_pred[0], x_pred[1], indexing="ij")
-            # # print(xnew)
-            # # print(ynew)
-            # znew = interpolate.bisplev(x_pred[0], [tau,], tck)
-            # print(znew)
-        else:
-            # estimate iv ~ strikes
-            tck = interpolate.splrep(exog[0], endog, s=0)
-            # predict
-            znew = interpolate.splev(x_pred[0], tck, der=0)
-
-    elif method == "kernel":
-        # estimate endog must be a list of one elt
-        kr = KernelReg(endog=[endog,], exog=exog, var_type=var_type,
-            reg_type="ll")
-        # fit
-        znew, _ = kr.fit(data_predict=x_pred)
-
-    # return, squeeze jsut in case
-    res = pd.Series(index=x_pred[0], data=znew.squeeze())
-
-    return res
-
-
-def bs_iv(call_p, forward_p, strike, rf, tau, **kwargs):
+def bs_iv(call_p, forward, strike, rf, tau, **kwargs):
     """Compute Black-Scholes implied volatility.
 
     Inversion of Black-Scholes formula to obtain implied volatility. Saddle
@@ -177,7 +89,7 @@ def bs_iv(call_p, forward_p, strike, rf, tau, **kwargs):
     ----------
     call_p: numpy.ndarray
         (M,) array of fitted option prices (IVs)
-    forward_p: float
+    forward: float
         forward price of underlying
     strike: numpy.ndarray
         (M,) array of strike prices
@@ -193,20 +105,20 @@ def bs_iv(call_p, forward_p, strike, rf, tau, **kwargs):
     res: numpy.ndarray
         (M,) array of implied volatilities
     """
-    # fprime: derivative of bs_price, or vega
-    # forward_p*e^{-rf*tau} is the same as S*e^{-y*tau}
     # lower part is dplus
     def f_prime(x):
-        x_1 = forward_p * np.exp(-rf * tau) * np.sqrt(tau)
+        """Derivative of bs_price, or vega."""
+        # forward*e^{-rf*tau} is the same as S*e^{-y*tau}
+        x_1 = forward * np.exp(-rf * tau) * np.sqrt(tau)
         x_2 = norm.pdf(
-            (np.log(forward_p/strike) + x * x/2 * tau) / (x * np.sqrt(tau)))
+            (np.log(forward / strike) + x * x / 2 * tau) / (x * np.sqrt(tau)))
 
         val = np.diag(x_1 * x_2)
 
         return val
 
     # saddle point (Wystup (2006), p. 19)
-    saddle = np.sqrt(2 / tau * np.abs(np.log(forward_p / strike)))
+    saddle = np.sqrt(2 / tau * np.abs(np.log(forward / strike)))
 
     # make sure it is positive, else set it next to 0
     saddle *= 0.9
@@ -214,7 +126,8 @@ def bs_iv(call_p, forward_p, strike, rf, tau, **kwargs):
 
     # objective
     def f_obj(x):
-        val = bs_iv_objective(call_p, forward_p, strike, rf, tau, x)
+        """Objective function: call minus target call."""
+        val = bs_price(forward, strike, rf, tau, x) - call_p
 
         return val
 
@@ -224,30 +137,7 @@ def bs_iv(call_p, forward_p, strike, rf, tau, **kwargs):
     return res
 
 
-def bs_iv_objective(c_hat, forward_p, strike, rf, tau, sigma):
-    """Compute discrepancy between the calculated option price and `c_hat`.
-
-    Parameters
-    ----------
-    c_hat : float
-    forward_p
-    strike
-    rf : float
-        risk-free rate, in (frac of 1) p.a.
-    tau
-    sigma : float
-        implied vola, in (frac of 1) p.a.
-
-    Returns
-    -------
-
-    """
-    c = bs_price(forward_p, strike, rf, tau, sigma) - c_hat
-
-    return c
-
-
-def bs_vega(forward_p, strike, y, tau, sigma):
+def bs_vega(forward, strike, y, tau, sigma):
     """Compute Black-Scholes vega as in Wystup (2006)
 
     For each strike in `K` and associated `sigma` computes sensitivity of
@@ -255,7 +145,7 @@ def bs_vega(forward_p, strike, y, tau, sigma):
 
     Parameters
     ----------
-    forward_p: float
+    forward: float
         forward price of the underlying
     strike: numpy.ndarray
         of strike prices
@@ -271,9 +161,9 @@ def bs_vega(forward_p, strike, y, tau, sigma):
     vega: numpy.ndarray
         vegas
     """
-    dplus = (np.log(forward_p / strike) + sigma**2 / 2 * tau) / \
-        (sigma * np.sqrt(tau))
-    vega = forward_p * np.exp(-y * tau) * np.sqrt(tau) * norm.pdf(dplus)
+    dplus = (np.log(forward / strike) + sigma ** 2 / 2 * tau) / \
+            (sigma * np.sqrt(tau))
+    vega = forward * np.exp(-y * tau) * np.sqrt(tau) * norm.pdf(dplus)
 
     return vega
 
@@ -361,14 +251,16 @@ def strike_from_delta(delta, spot, rf, div_yield, tau, vola, is_call):
     return k
 
 
-def mfiv(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
-    """
+def mfivariance(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
+    """Calculate the mfiv as the integral over call prices.
+
+    For details, see Jiang and Tian (2005).
 
     Parameters
     ----------
-    call_p : numpy.array
+    call_p : numpy.ndarray
         of call option prices
-    strike : numpy.array
+    strike : numpy.ndarray
         of strike prices
     forward_p : float
         forward price
@@ -377,7 +269,8 @@ def mfiv(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
     tau : float
         maturity, in years
     method : str
-        'jiang_tian' or 'sarno'
+        'jiang_tian' (integral with call options only) and 'sarno' (both
+        call and put options) currently implemented
 
     Returns
     -------
@@ -418,13 +311,77 @@ def mfiv(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
     return res
 
 
-def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
-    """
+def mfiskewness(call_p, strike, spot, forward, rf, tau):
+    """Calculate the MFIskewness.
+
+    For details, see Bakshi et al. (2003).
 
     Parameters
     ----------
-    spot
-    forward
+    call_p : numpy.ndarray
+        of call prices
+    strike : numpy.ndarray
+        of strike prices
+    spot : float
+        spot price of the underlying
+    forward : float
+        spot price of the underlying
+    rf : float
+        risk-free rate, in (frac of 1) p.a.
+    tau : float
+        maturity, in years
+
+    Returns
+    -------
+    res : float
+        model-free implied skewness
+
+    """
+    # put-call parity: call for for strike > spot and put for strike <= spot
+    strike_put = strike[strike <= spot]
+    otm_puts = call_to_put(call_p=call_p[strike <= spot], strike=strike_put,
+                           forward=forward, rf=rf, tau=tau)
+
+    strike_call = strike[strike > spot]
+    otm_calls = call_p[strike > spot]
+
+    # cubic contract
+    c_cube = (6*np.log(strike_call/spot) - 3*np.log(strike_call/spot)**2) / \
+        strike_call**2 * otm_calls
+    p_cube = (6*np.log(spot/strike_put) + 3*np.log(spot/strike_put)**2) / \
+        strike_put**2 * otm_puts
+    cube = integrate.simps(c_cube, strike_call) - \
+        integrate.simps(p_cube, strike_put)
+
+    # quadratic contract
+    mfiv = mfivariance(call_p, strike, forward, rf, tau, method="jiang_tian")
+
+    # quartic contract
+    c_quart = (12*np.log(strike_call/spot)**2
+               - 4*np.log(strike_call/spot)**3) / strike_call**2 * otm_calls
+    p_quart = (12*np.log(spot/strike_put)**2
+              + 4*np.log(spot/strike_put)**3) / strike_put**2 * otm_puts
+    quart = integrate.simps(c_quart, strike_call) + \
+        integrate.simps(p_quart, strike_put)
+
+    # mu
+    mu = np.exp(rf*tau) - 1 - np.exp(rf*tau) / 2 * mfiv - \
+         np.exp(rf*tau)/6 * cube - np.exp(rf*tau)/24 * quart
+
+    # all together
+    res = (np.exp(rf*tau)*cube - 3*mu*np.exp(rf*tau)*mfiv + 2*mu**3) /\
+        (np.exp(rf*tau)*mfiv - mu**2) ** (3/2)
+
+    return res
+
+
+def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
+    """Fill one missing value using the no-arbitrage relation.
+
+    Parameters
+    ----------
+    spot : float
+    forward : float
     rf : float
         in (frac of 1) p.a.
     div_yield : float
@@ -435,7 +392,7 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
     Returns
     -------
     args : dict
-        same arguments,
+
     """
     # collect all arguments
     args = {"spot": spot, "forward": forward, "rf": rf, "div_yield": div_yield}
@@ -468,6 +425,29 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
         args["div_yield"] = rf - np.log(forward / spot) / tau
 
     return args
+
+#
+# def bs_iv_objective(c_hat, forward_p, strike, rf, tau, sigma):
+#     """Compute discrepancy between the calculated option price and `c_hat`.
+#
+#     Parameters
+#     ----------
+#     c_hat : float
+#     forward_p
+#     strike
+#     rf : float
+#         risk-free rate, in (frac of 1) p.a.
+#     tau
+#     sigma : float
+#         implied vola, in (frac of 1) p.a.
+#
+#     Returns
+#     -------
+#
+#     """
+#     c = bs_price(forward_p, strike, rf, tau, sigma) - c_hat
+#
+#     return c
 
 # def estimate_rnd(c_true, f_true, strike, rf, is_iv, W, opt_meth, **kwargs):
 #     """Fit parameters of mixture of two log-normals to market data.
@@ -853,4 +833,4 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
 #     return res
 
 if __name__ == "__main__":
-    fill_by_no_arb()
+    pass
