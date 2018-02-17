@@ -1,19 +1,64 @@
 import pandas as pd
 from scipy import integrate
-import optools.functions as op_func
+import optools.pricing as op_func
 import re
 from optools.volsurface import VolatilitySmile
 import numpy as np
-import warnings
 
-# module with global configurations
-# from optools import config
-# from optools import lnmix
-# import multiprocessing as mproc
+
+def wrapper_smile_from_series(series, tau, fill_no_arb=False):
+    """
+
+    Parameters
+    ----------
+    series
+    tau
+    intpl_kwargs
+    estim_kwargs
+    fill_no_arb : bool
+
+    Returns
+    -------
+
+    """
+    if fill_no_arb:
+        # no-arbitrage relationships --------------------------------
+        no_arb_dict = dict(
+            series.loc[["spot", "forward", "rf", "div_yield"]])
+
+        series.update(pd.Series(op_func.fill_by_no_arb(tau=tau,
+                                                       **no_arb_dict)))
+
+    # find combinations: these have to start with digits --------------------
+    combies_regex = re.compile("[0-9]+[a-z]{2}")
+    combies_names = list(filter(combies_regex.match, series.index))
+    group_fun = lambda x: int(x[:2]) / 100
+
+    # group by delta, rename from '25rr' to 'rr' etc.
+    rename_dict = {k: k[2:] for k in combies_names}
+    combies = {
+        k: v.rename(rename_dict)
+        for k, v in series.loc[combies_names].dropna().groupby(group_fun)
+    }
+
+    # vol smile -------------------------------------------------------------
+    res = VolatilitySmile.by_delta_from_combinations(
+        combies=combies,
+        atm_vola=series.loc["atm_vola"],
+        spot=series.loc["spot"],
+        forward=series.loc["forward"],
+        rf=series.loc["rf"],
+        div_yield=series.loc["div_yield"],
+        tau=tau)
+
+    return res
 
 
 def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs):
-    """Wrapper.
+    """Calculate MFIV from iv of combinations, forward and the rest.
+
+    Find valid combinations (by name) in `series`, constructs a
+    VolatilitySurface, does the estimation.
 
     Parameters
     ----------
@@ -37,35 +82,16 @@ def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs):
         mfiv, in ((frac of 1))^2 p.a.
 
     """
-    # find combinations: these have to start with digits --------------------
-    combies_regex = re.compile("[0-9]+[a-z]{2}")
-    combies_names = list(filter(combies_regex.match, series.index))
-    group_fun = lambda x: int(x[:2])/100
-
-    # group by delta, rename from '25rr' to 'rr' etc.
-    rename_dict = {k: k[2:] for k in combies_names}
-    combies = {
-        k: v.rename(rename_dict)
-        for k, v in series.loc[combies_names].dropna().groupby(group_fun)
-    }
-
     # vol smile -------------------------------------------------------------
-    smile = VolatilitySmile.by_delta_from_combinations(
-        combies=combies,
-        atm_vola=series.loc["atm_vola"],
-        spot=series.loc["spot"],
-        forward=series.loc["forward"],
-        rf=series.loc["rf"],
-        div_yield=series.loc["div_yield"],
-        tau=tau)
+    smile = wrapper_smile_from_series(series, tau)
 
-    # range
-    strike_rng = np.ptp(smile.strike)
-    new_strike = np.arange(max(strike_rng/2, min(smile.strike) - strike_rng*2),
-                           max(smile.strike) + strike_rng*2,
-                           strike_rng/125)
-    smile_interp = smile.interpolate(new_strike=new_strike,
-                                     **intpl_kwargs)
+    # # range
+    # strike_rng = np.ptp(smile.strike)
+    # new_strike = np.arange(max(strike_rng/2, min(smile.strike) - strike_rng*2),
+    #                        max(smile.strike) + strike_rng*2,
+    #                        strike_rng/125)
+
+    smile_interp = smile.interpolate(**intpl_kwargs)
 
     res = smile_interp.get_mfivariance(**estim_kwargs)
 
@@ -135,234 +161,6 @@ def mfiskew_wrapper(iv_surf, forward_p, rf, tau, spot_p, method="spline"):
         (np.exp(rf*tau)*V - mu**2)**(3/2)
 
     return mfiskew
-
-
-def wrapper_implied_co_mat(variances, ccur):
-    """ Calculate covariance and correlation of currencies w.r.t a common one.
-
-    Parameters
-    ----------
-    variances : pandas.Series
-        of variances, labeled with currency pairs
-    ccur : str
-        counter currency
-    """
-    # all pairs
-    pairs_all = list(variances.index)
-    # pairs not containing "usd"
-    pairs_nonusd = [p for p in pairs_all if ccur not in p]
-    # pairs containing "usd"
-    pairs_usd = [p for p in pairs_all if ccur in p]
-    # currencies except usd
-    currencies = [p.replace(ccur, '') for p in pairs_usd]
-    N = len(currencies)
-
-    covmat = pd.DataFrame(
-        data=np.empty(shape=(N,N)),
-        index=currencies,
-        columns=currencies)
-    cormat = pd.DataFrame(
-        data=np.diag(np.ones(N)),
-        index=currencies,
-        columns=currencies)
-
-    # loop over currency indices (except usd, of course)
-    for cur1 in range(N):
-        # cur1 = 1
-        # get its name
-        xxx = currencies[cur1]
-        # find "xxxusd" or "usdxxx"
-        xxx_vs_usd = next(p for p in pairs_usd if xxx in p)
-        # set corresponding diagonal element of `covmat` to variance of
-        #   xxx_vs_usd
-        covmat.loc[xxx,xxx] = variances[xxx_vs_usd]
-        # loop over the other currency indices
-        for cur2 in range(cur1+1,N):
-            # cur2 = 4
-            # get its name
-            yyy = currencies[cur2]
-            # find "xxxyyy" or "yyyxxx"
-            xxx_vs_yyy = xxx+yyy if xxx+yyy in pairs_nonusd else yyy+xxx
-            # find "yyyusd" or "usdyyy"
-            yyy_vs_usd = next(p for p in pairs_usd if yyy in p)
-            # if "usd" parts are not aligned
-            reverse_sign = xxx_vs_usd.find(ccur) == yyy_vs_usd.find(ccur)
-            # calculate covariance
-            cov_q, cor_q = wrapper_implied_co(
-                varAC=variances[xxx_vs_yyy],
-                varAB=variances[xxx_vs_usd],
-                varBC=variances[yyy_vs_usd],
-                reverse_sign=reverse_sign)
-            # store it
-            covmat.loc[xxx,yyy] = cov_q
-            covmat.loc[yyy,xxx] = cov_q
-            cormat.loc[xxx,yyy] = cor_q
-            cormat.loc[yyy,xxx] = cor_q
-
-    # raise warning if matrix is not positive definite
-    tmp_covmat = \
-        covmat.ix[np.isfinite(covmat).all(), np.isfinite(covmat).all()]
-    try:
-        d = np.linalg.det(tmp_covmat*10000)
-        if not d > 0:
-            warnings.warn("Matrix is not positive definite" + \
-                " with det = {}".format(round(d, 1)))
-    except np.linalg.LinAlgError:
-        warnings.warn("Too many missing values")
-
-    return covmat, cormat
-
-
-def wrapper_implied_co(varAC, varAB, varBC, reverse_sign):
-    """ Calculate covariance and correlation implied by three variances.
-
-    Builds on var[AC] = var[AB] + var[BC] + 2*cov[AB,BC] if
-    AC = AB + BC to extract covariance and correlation between AB and BC.
-
-    Parameters
-    ----------
-    varAC: (1,) float
-        variance of currency pair consisting of base currency A and counter
-        currency C (units of C for one unit of A)
-    varAB: (1,) float
-        variance of currency pair consisting of base currency A and counter
-        currency B (units of B for one unit of A)
-    varBC: (1,) float
-        variance of currency pair consisting of base currency B and counter
-        currency C (units of C for one unit of B)
-    reverse_sign: (1,) boolean
-        True if instead of _one_ of addends its reciprocal is provided such
-        that +2*cov changes to -2*cov
-
-    Returns
-    -------
-    co_v: float
-        implied covariance
-    co_r: float
-        implied correlation
-    """
-
-    co_v = (varAC - varAB - varBC)/2*(-1 if reverse_sign else 1)
-    co_r = co_v/np.sqrt(varAB*varBC)*(1 if reverse_sign else -1)
-
-    return co_v, co_r
-
-
-def wrapper_beta_from_covmat(covmat, wght, exclude_self=False):
-    """ Estimates beta of a number of assets w.r.t. their linear combination.
-
-    Parameters
-    ----------
-    covmat : pandas.DataFrame
-        covariance matrix
-    wght : pandas.Series
-        weights of each asset in the linear combination
-    zero_cost : boolean
-        True if the portfolio defined with `wght` is zero-cost (sum(wght)=0)
-
-    Returns
-    -------
-    B : pandas.Series
-        of calculated betas (ordering corresponds to columns of `covmat`)
-    """
-    # wght = pd.Series(data=np.ones(8), index=covmat.columns)
-    # # new weight
-    # if zero_cost:
-    #     new_wght = wght[covmat_trim.columns] - wght[covmat_trim.columns].sum()
-    # else:
-    #     new_wght = wght[covmat_trim.columns]/wght[covmat_trim.columns].sum()
-
-    # do the computations
-    if exclude_self:
-        B = pd.Series(index=wght.index)
-        D = pd.Series(index=wght.index)
-        for c in wght.index:
-            tmp_wght = wght.copy()
-            tmp_wght.loc[c] = 0.0
-            tmp_wght = normalize_weights(tmp_wght)
-            this_num = covmat.dot(tmp_wght)
-            denominator = tmp_wght.dot(covmat.dot(tmp_wght))
-            B.loc[c] = this_num.loc[c]/denominator
-            D.loc[c] = denominator
-    else:
-        numerator = covmat.dot(wght)
-        D = wght.dot(covmat.dot(wght))
-        B = numerator/D
-
-    # reindex back
-    B = B.reindex(covmat.columns)
-
-    return B, D
-
-
-def normalize_weights(wght):
-    """
-    """
-    if (wght == 0).all():
-        res = wght
-    if (wght < 0).any() & (wght > 0).any():
-        short_leg = wght.where(wght < 0)
-        long_leg = wght.where(wght >= 0)
-
-        short_leg = short_leg / np.abs(short_leg).sum()
-        long_leg = long_leg / np.abs(long_leg).sum()
-
-        res = short_leg.fillna(long_leg)
-    else:
-        res = wght / np.abs(wght).sum()
-
-    return res
-
-
-def wrapper_beta_of_portfolio(covmat, wght_p, wght_m):
-    """ Estimates beta of a number of assets w.r.t. their linear combination.
-
-    TODO: fix this description
-
-    Parameters
-    ----------
-    covmat : pandas.DataFrame
-        covariance matrix
-    wght : pandas.Series
-        weights of each asset in the linear combination
-
-    Returns
-    -------
-    B : pandas.Series
-        of calculated betas (ordering corresponds to columns of `covmat`)
-    """
-    # wght = pd.Series(data=np.ones(8), index=covmat.columns)
-    # trim nans in a smart way
-    covmat_trim = covmat.copy()
-    # init count of nans
-    nan_count_total = pd.isnull(covmat_trim).sum().sum()
-    # while there are nans in covmat, remove columns with max number of nans
-    while nan_count_total > 0:
-        # detect rows where number of nans is less than maximum
-        nan_max = pd.isnull(covmat_trim).sum()
-        nan_max_idx = max([(p,q) for q,p in enumerate(nan_max)])[1]
-
-        # nan_max_idx = pd.isnull(covmat_trim).sum() < \
-        #     max(pd.isnull(covmat_trim).sum())
-        # covmat_trim = covmat_trim.ix[nan_max_idx,nan_max_idx]
-
-        covmat_trim.drop(covmat_trim.columns[nan_max_idx],axis=0,inplace=True)
-        covmat_trim.drop(covmat_trim.columns[nan_max_idx],axis=1,inplace=True)
-
-        # new count of nans
-        nan_count_total = pd.isnull(covmat_trim).sum().sum()
-
-    # new weight
-    new_wght_m = wght_m[covmat_trim.columns]/wght_m[covmat_trim.columns].sum()
-    new_wght_p = wght_p.reindex(index=covmat_trim.columns,fill_value=0.0)
-    new_wght_p /= new_wght_p.sum()
-
-    # do the computations
-    numerator = new_wght_p.dot(covmat_trim.dot(new_wght_m))
-    denominator = new_wght_m.dot(covmat_trim.dot(new_wght_m))
-    B = numerator/denominator
-
-    return B
 
 
 # def aux_fun(x):
@@ -542,7 +340,7 @@ def wrapper_beta_of_portfolio(covmat, wght_p, wght_m):
 #
 # def run_one_row(idx_row, tau, opt_meth, constraints):
 #     """ Wrapper around estimate_rnd working on (idx, row) from pandas.iterrows
-#     TODO: relocate to wrappers.py
+#     TODO: relocate to pricing_wrappers.py
 #     """
 #     # unpack the tuple
 #     idx = idx_row[0]

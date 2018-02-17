@@ -16,7 +16,7 @@ path = "c:/users/" + usr + "/google drive/" + \
 # logger = logging.getLogger()
 # logger.setLevel(logging.DEBUG)
 
-from optools import functions as op, wrappers as opwraps
+from optools import pricing as op, pricing_wrappers as opwraps
 
 
 class TestFromWystup(unittest.TestCase):
@@ -38,8 +38,8 @@ class TestFromWystup(unittest.TestCase):
     def test_wings_from_combies_iv(self):
         """
         """
-        res = op.wings_iv_from_combies_iv(self.rr, self.bf, self.atm,
-                                          self.delta)
+        res = op.vanillas_from_combinations(self.rr, self.bf, self.atm,
+                                            self.delta)
 
         self.assertAlmostEquals(res.loc[self.delta], 5.07, 2)
         self.assertAlmostEquals(res.loc[1-self.delta], 4.89, 2)

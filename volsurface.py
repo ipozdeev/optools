@@ -1,11 +1,14 @@
 import pandas as pd
 import numpy as np
+from functools import reduce
 from scipy.interpolate import CubicSpline
 from statsmodels.nonparametric.kernel_regression import KernelReg
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
-from optools.functions import (bs_price, strike_from_delta, mfivariance,
-                               mfiskewness, wings_iv_from_combies_iv)
+from optools.pricing import (bs_price, strike_from_delta, mfivariance,
+                             mfiskewness, vanillas_from_combinations,
+                             fill_by_no_arb)
 from optools.helpers import fast_norm_cdf
 
 
@@ -49,10 +52,6 @@ class VolatilitySmile:
         # sort index, rename
         smile = smile.loc[sorted(smile.index)].rename("vola")
 
-        # # default forward or spot?
-        # if forward is None:
-        #     forward = spot * np.exp((rf - div_yield) * tau)
-
         # save to attributes
         self.smile = smile
 
@@ -63,6 +62,19 @@ class VolatilitySmile:
         self.rf = rf
         self.div_yield = div_yield
         self.tau = tau
+
+    def dropna(self):
+        """
+        """
+        return VolatilitySmile(vola=self.smile.dropna().values,
+                               strike=self.smile.dropna().index,
+                               spot=self.spot, forward=self.forward,
+                               rf=self.rf, div_yield=self.div_yield)
+
+    def __rep__(self):
+        """
+        """
+        return self.smile.__repr__()
 
     def __str__(self):
         """
@@ -105,6 +117,8 @@ class VolatilitySmile:
                                    vola, is_call)
 
         res = cls(vola, strike, spot, forward, rf, div_yield, tau)
+
+        res.delta = delta
 
         return res
 
@@ -150,7 +164,8 @@ class VolatilitySmile:
         volas = list()
 
         for k, v in combies.items():
-            volas.append(wings_iv_from_combies_iv(atm=atm_vola, delta=k, **v))
+            volas.append(vanillas_from_combinations(atm=atm_vola,
+                                                    delta=k, **v))
 
         volas = pd.concat(volas)
 
@@ -166,7 +181,7 @@ class VolatilitySmile:
 
         return res
 
-    def interpolate(self, new_strike, in_method="spline",
+    def interpolate(self, new_strike=None, in_method="spline",
                     ex_method="const", **kwargs):
         """Interpolate volatility smile.
 
@@ -192,6 +207,14 @@ class VolatilitySmile:
         res : VolatilitySmile
             a new instance of VolatilitySmile
         """
+        # defaults
+        if new_strike is None:
+            strike_rng = np.ptp(self.strike)
+            new_strike = np.arange(
+                max(strike_rng / 2, min(self.strike) - strike_rng * 2),
+                max(self.strike) + strike_rng * 2,
+                strike_rng / 125)
+
         # reindex, assign a socialistic name; this will be sorted!
         strike_union = np.union1d(self.strike, new_strike).astype(np.float)
 
@@ -244,7 +267,7 @@ class VolatilitySmile:
 
         return res
 
-    def get_mfivariance(self, method="jiang_tian"):
+    def get_mfivariance(self):
         """Calculate the model-free implied variance.
 
         The mfiv is calculated as the integral over call prices weighted by
@@ -254,9 +277,6 @@ class VolatilitySmile:
 
         Parameters
         ----------
-        method : str
-            'jiang_tian' (integral with call options only) and 'sarno' (both
-            call and put options) currently implemented
 
         Returns
         -------
@@ -269,8 +289,7 @@ class VolatilitySmile:
                           rf=self.rf, tau=self.tau, vola=self.vola)
 
         # mfiv
-        res = mfivariance(call_p, self.strike, self.forward, self.rf, self.tau,
-                          method=method)
+        res = mfivariance(call_p, self.strike, self.forward, self.rf, self.tau)
 
         return res
 
@@ -298,7 +317,7 @@ class VolatilitySmile:
         ----------
         **kwargs : any
             arguments to matplotlib.pyplot.plot(); can contain an instance
-            of Axes to iuse for plotting
+            of Axes to use for plotting
 
         Returns
         -------
@@ -318,6 +337,214 @@ class VolatilitySmile:
         self.smile.plot(ax=ax, **kwargs)
 
         return fig, ax
+
+
+class VolatilitySurface:
+    """
+    """
+    def __init__(self, vola_df, spot=None, forward=None, rf=None,
+                 div_yield=None):
+        """
+
+        Parameters
+        ----------
+        vola_df : pandas.DataFrame
+        """
+        # sort a bit
+        self.surface = vola_df.sort_index(axis=0).sort_index(axis=1)
+
+        self.vola = self.surface.values
+        self.strike = np.array(self.surface.index)
+        self.tau = np.array(self.surface.columns)
+
+        self.spot = spot
+        self.forward = forward
+        self.rf = rf
+        self.div_yield = div_yield
+
+    @property
+    def smiles(self):
+        res = {
+            t: VolatilitySmile(v.dropna().values, v.dropna().index,
+                               spot=self.spot.get(t, None),
+                               forward=self.forward.get(t, None),
+                               rf=self.rf.get(t, None),
+                               div_yield=self.div_yield.get(t, None),
+                               tau=t)
+            for t, v in self.surface.iteritems()
+        }
+
+        return res
+
+    def plot(self, **kwargs):
+        """Plot the surface in 3d.
+
+        Parameters
+        ----------
+        **kwargs : any
+            arguments to matplotlib.pyplot.plot(); can contain an instance
+            of Axes to use for plotting
+
+        Returns
+        -------
+        fig : matplotlib.pyplot.figure
+        ax : matplotlib.pyplot.Axes
+
+        """
+        # watch out for cases when `ax` was provided in kwargs
+        ax = kwargs.pop("ax", None)
+
+        if ax is None:
+            fig = plt.figure()
+        else:
+            fig = ax.figure
+
+        # plot
+        ax = fig.add_subplot(111, projection='3d')
+        k, t = np.meshgrid(self.strike, self.tau)
+
+        ax.plot_surface(k, t, self.vola.T)
+
+        ax.set_xlabel('strike')
+        ax.set_ylabel('tau')
+        ax.set_zlabel('vola')
+
+        return fig, ax
+
+    def interpolate_along_tau(self):
+        """
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        res : VolatilitySurface
+            a new instance, with interpolated data
+
+        """
+        # assert isinstance(self.forward, pd.Series)
+        # self.forward = self.forward.reindex(index=self.tau)
+
+        # loop over maturities: for each, there are five unique (in case of
+        # fx) strikes, so it is possible to fill up to five new strikes in
+        # each other column
+        imputed_all = list()
+
+        for tau_star, tau_star_col in self.surface.iteritems():
+            # fetch self.forward corresponding to this maturity
+            f_star = self.forward.loc[tau_star]
+            # strikes in this column
+            k_star = np.array(tau_star_col.dropna().index)
+
+            # loop over the other columns (the two closest at most)
+            # closest_cols = pd.Series({tau_star: tau_star}).reindex(
+            #     index=self.tau).sort_index()
+            # closest_cols = closest_cols.ffill(limit=1).bfill(limit=1).dropna()
+            # closest_cols = [p for p in closest_cols.index if p != tau_star]
+            closest_cols = self.surface.columns
+
+            imputed_tau_star = dict()
+
+            for tau_new, tau_new_col in\
+                    self.surface.loc[:, closest_cols].iteritems():
+
+                # fetch self.forward corresponding to this maturity (new one)
+                f_new = self.forward.loc[tau_new]
+
+                # calculate new strikes for this new maturity
+                k_new = f_new * (k_star / f_star)**(np.sqrt(tau_new/tau_star))
+
+                # calculate new sigmas
+                sigma_new = self.surface.loc[f_new, tau_new] +\
+                    self.surface.loc[k_star, tau_star].values - \
+                    self.surface.loc[f_star, tau_star]
+
+                # assemble in a series
+                imputed_tau_star[tau_new] = pd.Series(index=k_new,
+                                                      data=sigma_new)
+
+            # concat all freshly imputed dfs
+            imputed_all.append(pd.concat(imputed_tau_star, axis=1))
+
+        # merge all dfs with reduce
+        def reduce_func(x, y):
+            x_new, y_new = x.align(y, join="outer")
+            return x_new.fillna(y_new)
+
+        res = VolatilitySurface(
+            vola_df=reduce(reduce_func, imputed_all),
+            forward=self.forward, spot=self.spot, rf=self.rf,
+            div_yield=self.div_yield)
+
+        return res
+
+    def extrapolate(self, other):
+        """
+
+        Parameters
+        ----------
+        other : VolatilitySurface
+
+        Returns
+        -------
+
+        """
+        # copy surfaces
+        self_surf, other_surf = self.surface.align(other.surface,
+                                                   axis=0, join="outer")
+
+        # fill na smile by smile, leaving everything within the eisting
+        # smile boundaries as is
+        for t, smile in self_surf.iteritems():
+            # existign smile boundaries
+            s_idx = smile.first_valid_index()
+            e_idx = smile.last_valid_index()
+
+            # fillna
+            self_surf.loc[:, t].fillna(
+                other_surf.loc[other_surf.index < s_idx, t], inplace=True)
+            self_surf.loc[:, t].fillna(
+                other_surf.loc[other_surf.index > e_idx, t], inplace=True)
+
+        res = VolatilitySurface(self_surf, forward=self.forward,
+                                spot=self.spot, rf=self.rf,
+                                div_yield=self.div_yield)
+
+        return res
+
+    def interpolate(self, new_strike=None, **kwargs):
+        """
+
+        Returns
+        -------
+
+        """
+        if new_strike is None:
+            new_strike = {}
+
+        smiles_interp = pd.DataFrame(
+            {
+                t: v.interpolate(new_strike=new_strike.get(t, None), **kwargs)
+                for t, v in self.smiles
+            }
+        )
+
+        return VolatilitySurface(vola_df=smiles_interp, spot=self.spot,
+                                 forward=self.forward, rf=self.rf,
+                                 div_yield=self.div_yield)
+
+    def get_mfivariance(self):
+        """
+
+        Returns
+        -------
+
+        """
+        res = pd.Series({t: v.get_mfivariance()
+                         for t, v in self.smiles.items()})
+
+        return res
 
 
 if __name__ == "__main__":

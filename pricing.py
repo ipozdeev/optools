@@ -168,7 +168,7 @@ def bs_vega(forward, strike, y, tau, sigma):
     return vega
 
 
-def wings_iv_from_combies_iv(rr, bf, atm, delta=None):
+def vanillas_from_combinations(rr, bf, atm, delta=None):
     """Calculate implied vola of calls from that of put/call combinations.
 
     See Wystup, p.24.
@@ -251,7 +251,7 @@ def strike_from_delta(delta, spot, rf, div_yield, tau, vola, is_call):
     return k
 
 
-def mfivariance(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
+def mfivariance(call_p, strike, forward_p, rf, tau):
     """Calculate the mfiv as the integral over call prices.
 
     For details, see Jiang and Tian (2005).
@@ -268,9 +268,6 @@ def mfivariance(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
         risk-free rate, in (frac of 1) p.a.
     tau : float
         maturity, in years
-    method : str
-        'jiang_tian' (integral with call options only) and 'sarno' (both
-        call and put options) currently implemented
 
     Returns
     -------
@@ -278,32 +275,12 @@ def mfivariance(call_p, strike, forward_p, rf, tau, method="jiang_tian"):
         mfiv, in (frac of 1) p.a.
 
     """
-    if method == "jiang_tian":
-        # integrate
-        integrand = (call_p * np.exp(rf * tau) -\
-            np.maximum(np.zeros(shape=(len(call_p), )), forward_p-strike)) /\
-            (strike * strike)
+    # integrate
+    integrand = (call_p * np.exp(rf * tau) -\
+        np.maximum(np.zeros(shape=(len(call_p), )), forward_p-strike)) /\
+        (strike * strike)
 
-        res = integrate.simps(integrand, strike) * 2
-
-    elif method == "sarno":
-        # part of prices to puts
-        put_p = call_to_put(call_p, strike, forward_p, rf, tau)
-
-        # out-of-the-money calls and puts
-        call_strike = strike[strike >= forward_p]
-        otm_call_p = call_p[strike >= forward_p]
-        put_strike = strike[strike < forward_p]
-        otm_put_p = put_p[strike < forward_p]
-
-        # integrate
-        res = integrate.simps(otm_put_p / put_strike**2, put_strike) + \
-            integrate.simps(otm_call_p / call_strike**2, call_strike)
-
-        res *= 2*np.exp(rf*tau)
-
-    else:
-        raise NameError("Method not allowed!")
+    res = integrate.simps(integrand, strike) * 2
 
     # annualize
     res /= tau
@@ -375,7 +352,7 @@ def mfiskewness(call_p, strike, spot, forward, rf, tau):
     return res
 
 
-def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
+def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=False):
     """Fill one missing value using the no-arbitrage relation.
 
     Parameters
@@ -388,6 +365,8 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
         in (frac of 1) p.a.
     tau : float
         maturity, in years
+    raise_errors : bool
+        True to raise errors when more than two argument are missing
 
     Returns
     -------
@@ -426,7 +405,7 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=True):
 
     return args
 
-#
+
 # def bs_iv_objective(c_hat, forward_p, strike, rf, tau, sigma):
 #     """Compute discrepancy between the calculated option price and `c_hat`.
 #
