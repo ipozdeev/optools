@@ -64,3 +64,36 @@ def disc_to_cont(rate, tau):
     res = np.log(1 + rate*tau) / tau
 
     return res
+
+
+def strike_range(strike, k_min=None, k_max=None, step=None):
+    """
+
+    Parameters
+    ----------
+    strike
+    k_min
+    k_max
+    step
+
+    Returns
+    -------
+
+    """
+    # range
+    strike_rng = np.ptp(strike)
+
+    # min, max
+    if k_min is None:
+        k_min = max(strike_rng / 2, min(strike) - strike_rng * 2)
+    if k_max is None:
+        k_max = max(strike) + strike_rng * 2
+    if step is None:
+        step = strike_rng / 200
+
+    strike_new = np.arange(k_min, k_max, step)
+
+    # reindex, assign a socialistic name; this will be sorted!
+    res = np.union1d(strike, strike_new).astype(np.float)
+
+    return res
