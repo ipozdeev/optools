@@ -85,13 +85,7 @@ def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs):
     # vol smile -------------------------------------------------------------
     smile = wrapper_smile_from_series(series, tau)
 
-    # # range
-    # strike_rng = np.ptp(smile.strike)
-    # new_strike = np.arange(max(strike_rng/2, min(smile.strike) - strike_rng*2),
-    #                        max(smile.strike) + strike_rng*2,
-    #                        strike_rng/125)
-
-    smile_interp = smile.interpolate(**intpl_kwargs)
+    smile_interp = smile.dropna(from_index=True).interpolate(**intpl_kwargs)
 
     res = smile_interp.get_mfivariance(**estim_kwargs)
 
