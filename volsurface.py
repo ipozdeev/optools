@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
+import copy
 from functools import reduce
 from scipy.interpolate import CubicSpline
 from statsmodels.nonparametric.kernel_regression import KernelReg
 import matplotlib.pyplot as plt
+from optools.helpers import strike_range
 from mpl_toolkits.mplot3d import Axes3D
 
 from optools.pricing import (bs_price, strike_from_delta, mfivariance,
@@ -41,16 +43,12 @@ class VolatilitySmile:
         time to maturity, in years
 
     """
-    def __init__(self, vola, strike, spot=None, forward=None, rf=None,
+    def __init__(self, vola_series, spot=None, forward=None, rf=None,
                  div_yield=None, tau=None):
         """
         """
-        # construct a pandas.Series -> easier to plot and order
-        smile = pd.Series(data=vola.astype(float),
-                          index=strike.astype(float))
-
-        # sort index, rename
-        smile = smile.loc[sorted(smile.index)].rename("vola")
+        # sort, convert to float, rename
+        smile = vola_series.astype(float).sort_index().rename(tau)
 
         # save to attributes
         self.smile = smile
@@ -63,15 +61,21 @@ class VolatilitySmile:
         self.div_yield = div_yield
         self.tau = tau
 
-    def dropna(self):
+    def dropna(self, from_index=False):
         """
         """
-        return VolatilitySmile(vola=self.smile.dropna().values,
-                               strike=self.smile.dropna().index,
-                               spot=self.spot, forward=self.forward,
-                               rf=self.rf, div_yield=self.div_yield)
+        res = copy.deepcopy(self)
 
-    def __rep__(self):
+        if from_index:
+            res.smile = res.smile.loc[res.smile.index.dropna()]
+            res.vola = res.smile.values
+            res.strike = np.array(res.smile.index)
+        else:
+            res.smile = res.smile.dropna()
+
+        return res
+
+    def __repr__(self):
         """
         """
         return self.smile.__repr__()
@@ -82,7 +86,8 @@ class VolatilitySmile:
         return str(self.smile)
 
     @classmethod
-    def by_delta(cls, vola, delta, spot, forward, rf, div_yield, tau, is_call):
+    def by_delta(cls, vola_series, spot, forward, rf, div_yield, tau,
+                 is_call):
         """Construct VolatilitySmile from delta-vola relation.
 
         Converts Balck-Scholes deltas to strikes (see Wystup (2006), eq. 1.44)
@@ -90,10 +95,8 @@ class VolatilitySmile:
 
         Parameters
         ----------
-        vola: numpy.ndarray
-            implied vol
-        delta: numpy.ndarray
-            of option deltas, in (frac of 1)
+        vola_series: pandas.Series
+            of vola, in percent p.a., indexed by option deltas, in frac of 1
         spot: float
             underlying price
         forward : float
@@ -113,12 +116,22 @@ class VolatilitySmile:
             instance
 
         """
-        strike = strike_from_delta(delta, spot, rf, div_yield, tau,
-                                   vola, is_call)
+        # rename index to be able to pick it up as a column later
+        vola_series.index.name = "delta"
 
-        res = cls(vola, strike, spot, forward, rf, div_yield, tau)
+        # strikes from deltas
+        strike = strike_from_delta(vola_series.index, spot, rf, div_yield, tau,
+                                   vola_series.values, is_call)
 
-        res.delta = delta
+        # concat vola-by-delta and strikes to have the delta-to-strike mapping
+        df = pd.concat({
+            "vola": vola_series,
+            "strike": pd.Series(strike, index=vola_series.index)},
+            axis=1).reset_index().set_index("strike").sort_index()
+
+        res = cls(df.loc[:, "vola"], spot, forward, rf, div_yield, tau)
+
+        res.delta = df.loc[:, "delta"]
 
         return res
 
@@ -176,13 +189,53 @@ class VolatilitySmile:
 
         volas.loc[atm_delta] = atm_vola
 
-        res = cls.by_delta(volas.values, np.array(volas.index),
+        res = cls.by_delta(volas,
                            spot, forward, rf, div_yield, tau, is_call=True)
 
         return res
 
+    @staticmethod
+    def interpolate_by_delta(delta, delta_new, delta_atm, sigma_atm, sigma_s,
+                             sigma_r):
+        """
+
+        Parameters
+        ----------
+        delta
+        delta_new
+        delta_atm
+        sigma_atm
+        sigma_s
+        sigma_r
+
+        Returns
+        -------
+
+        """
+        a = 1.0
+
+        c1_num = a**2*(2*sigma_s + sigma_r) -\
+            2*a*(2*sigma_s + sigma_r)*(delta + delta_atm) +\
+            2*(delta**2*sigma_r +
+                4*sigma_s*delta*delta_atm +
+                sigma_r*delta_atm**2)
+
+        c1_den = (2*(2*delta - a)*(delta - delta_atm)*(delta - a + delta_atm))
+        c1 = c1_num / c1_den
+
+        c2_num = 4*delta*sigma_s -\
+            a*(2*sigma_s + sigma_r) +\
+            2*sigma_r*delta_atm
+        c2_den = 2*(2*delta - a)*(delta - delta_atm)*(delta - a + delta_atm)
+        c2 = c2_num / c2_den
+
+        res = sigma_atm + c1*(delta_new - delta_atm) +\
+            c2*(delta_new - delta_atm)**2
+
+        return res
+
     def interpolate(self, new_strike=None, in_method="spline",
-                    ex_method="const", **kwargs):
+                    ex_method="constant", **kwargs):
         """Interpolate volatility smile.
 
         Spline interpolation (exact fit to existing data) or kernel
@@ -209,14 +262,7 @@ class VolatilitySmile:
         """
         # defaults
         if new_strike is None:
-            strike_rng = np.ptp(self.strike)
-            new_strike = np.arange(
-                max(strike_rng / 2, min(self.strike) - strike_rng * 2),
-                max(self.strike) + strike_rng * 2,
-                strike_rng / 125)
-
-        # reindex, assign a socialistic name; this will be sorted!
-        strike_union = np.union1d(self.strike, new_strike).astype(np.float)
+            new_strike = strike_range(self.strike)
 
         # interpolate -------------------------------------------------------
         if in_method == "spline":
@@ -224,7 +270,7 @@ class VolatilitySmile:
             cs = CubicSpline(self.strike, self.vola,
                              extrapolate=False, **kwargs)
             # fit
-            vola_interpolated = cs(strike_union)
+            vola_interpolated = cs(new_strike)
 
         elif in_method == "kernel":
             # estimate endog must be a list of one element
@@ -232,7 +278,7 @@ class VolatilitySmile:
                            reg_type="ll", var_type=['c', ])
 
             # fit
-            vola_interpolated, _ = kr.fit(data_predict=strike_union)
+            vola_interpolated, _ = kr.fit(data_predict=new_strike)
 
         else:
             raise NotImplementedError("Interpolation method not implemented!")
@@ -244,7 +290,7 @@ class VolatilitySmile:
         elif ex_method == "constant":
             # use pandas.Series functionality to extrapolate but check if the
             #   strikes are sorted first
-            tmp = pd.Series(index=strike_union, data=vola_interpolated)
+            tmp = pd.Series(index=new_strike, data=vola_interpolated)
             if not np.array_equal(tmp.index, sorted(tmp.index)):
                 raise ValueError("Strikes not sorted before extrapolation!")
 
@@ -253,14 +299,15 @@ class VolatilitySmile:
             tmp.loc[tmp.index > max(self.strike)] = tmp.loc[max(self.strike)]
 
             # disassemble again
-            strike_union = np.array(tmp.index)
+            new_strike = np.array(tmp.index)
             vola_interpolated = tmp.values
 
         else:
             raise NotImplementedError("Extrapolation method not implemented!")
 
         # construct another VolatilitySmile instance
-        res = VolatilitySmile(vola=vola_interpolated, strike=strike_union,
+        vola_series = pd.Series(vola_interpolated, index=new_strike)
+        res = VolatilitySmile(vola_series,
                               spot=self.spot,
                               forward=self.forward, rf=self.rf,
                               div_yield=self.div_yield, tau=self.tau)
@@ -365,7 +412,7 @@ class VolatilitySurface:
     @property
     def smiles(self):
         res = {
-            t: VolatilitySmile(v.dropna().values, v.dropna().index,
+            t: VolatilitySmile(v.dropna(),
                                spot=self.spot.get(t, None),
                                forward=self.forward.get(t, None),
                                rf=self.rf.get(t, None),
@@ -525,8 +572,9 @@ class VolatilitySurface:
 
         smiles_interp = pd.DataFrame(
             {
-                t: v.interpolate(new_strike=new_strike.get(t, None), **kwargs)
-                for t, v in self.smiles
+                t: v.interpolate(new_strike=new_strike.get(t, None),
+                                 **kwargs).smile
+                for t, v in self.smiles.items()
             }
         )
 
@@ -551,7 +599,7 @@ if __name__ == "__main__":
     # vola = np.array([0.08, 0.10, 0.07, 0.068, 0.075])
     vola = np.array([0.08, ]*5)
     strike = np.array([0.9, 0.8, 0.95, 1.1, 1.21])
-    vs = VolatilitySmile(vola, strike, spot=1.0,
+    vs = VolatilitySmile(pd.Series(vola, index=strike), spot=1.0,
                          forward=1.0*np.exp((0.01 - 0.001)*0.25), rf=0.01,
                          div_yield=.001, tau=0.25)
 
