@@ -9,8 +9,7 @@ from optools.helpers import strike_range
 from mpl_toolkits.mplot3d import Axes3D
 
 from optools.pricing import (bs_price, strike_from_delta, mfivariance,
-                             mfiskewness, vanillas_from_combinations,
-                             fill_by_no_arb)
+                             mfiskewness, vanillas_from_combinations)
 from optools.helpers import fast_norm_cdf
 
 

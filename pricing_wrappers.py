@@ -117,7 +117,7 @@ def mfiskew_wrapper(iv_surf, forward_p, rf, tau, spot_p, method="spline"):
     c_interp = op_func.bs_price(forward_p, iv_interp.index, rf, tau,
                                 iv_interp.values)
 
-    # put-call parity: C for for K > spot_p and P for K <= spot_p
+    # put-call parity: C for for K > spot_p and arch_lags for K <= spot_p
     K_P = iv_interp.index[iv_interp.index <= spot_p]
     P = op_func.call_to_put(
         call_p=c_interp[iv_interp.index <= spot_p],
