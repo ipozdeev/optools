@@ -331,7 +331,7 @@ def mfiskewness(call_p, strike, spot, forward, rf, tau):
         integrate.simps(p_cube, strike_put)
 
     # quadratic contract
-    mfiv = mfivariance(call_p, strike, forward, rf, tau, method="jiang_tian")
+    mfiv = mfivariance(call_p, strike, forward, rf, tau)
 
     # quartic contract
     c_quart = (12*np.log(strike_call/spot)**2
