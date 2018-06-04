@@ -87,7 +87,7 @@ class ForwardLookingBeta():
             asset=self.rx_m,
             signal=self.fdisc_m.shift(1),
             n_portf=n_portf)
-        carry_hml.name = "carry"
+        carry_hml.name = "strat"
 
         # align
         both = pd.concat((flb_hml, carry_hml), axis=1)
@@ -231,13 +231,13 @@ if __name__ == "__main__":
     fig_b_carry_enhcd, ax_b_carry_enhcd = plt.subplots(figsize=(8.4,11.7/2))
 
     ax_flb.set_title("flb")
-    ax_carry.set_title("carry")
+    ax_carry.set_title("strat")
     ax_b_carry.set_title("b_carry")
     ax_b_carry_enhcd.set_title("ax_b_carry")
 
     all_res = pd.Panel(
         items=list(range(22)),
-        major_axis=["carry","se_carry"],
+        major_axis=["strat","se_carry"],
         minor_axis=["alpha","flb","adj_r_sq"])
 
     carries = pd.DataFrame(columns=range(22), index=beta_to_test.index)
@@ -266,7 +266,7 @@ if __name__ == "__main__":
         this_flb.name = "flb"
         # respective carry
         this_carry = poco.get_hml(ret, fd.shift(1), n_portf=n_portf)
-        this_carry.name = "carry"
+        this_carry.name = "strat"
 
         # carry
         carry_pf = poco.rank_sort(ret, fd.shift(1), n_portf)
@@ -315,11 +315,11 @@ if __name__ == "__main__":
     descr.index = taf.descriptives(this_flb.to_frame()).index
 
     fig, ax = plt.subplots(figsize=(8.4,11.7/2))
-    all_res.loc[:,"carry","adj_r_sq"].hist()
+    all_res.loc[:,"strat","adj_r_sq"].hist()
 
     carries.corrwith(flbs)
 
-    all_res.loc[:,"carry","flb"].hist()
+    all_res.loc[:,"strat","flb"].hist()
 
     # corr of fwd disc and betas
     fdisc_d.corrwith(b_impl_d)
@@ -363,7 +363,7 @@ if __name__ == "__main__":
     rx_m.loc["2013":].mean(axis=1).cumsum().plot()
 
     carry_m = poco.get_hml(rx_m.loc["2013":], fdisc_m.shift(1), 3)
-    carry_m.name = "carry"
+    carry_m.name = "strat"
     dol_m = rx_m.loc["2013":].mean(axis=1)
     dol_m.name = "dol"
     flb_m = poco.get_hml(rx_m, b_impl_m.shift(1), 3)

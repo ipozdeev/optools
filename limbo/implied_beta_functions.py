@@ -551,7 +551,7 @@ class ImpliedBetaEnvironment():
         pfs: dict
             output of poco.rank_sort()
         """
-        # pfs=carry
+        # pfs=strat
         # vcv = BImpl._fetch_from_hdf("covariances")
         # fetch covariances
         vcv = self._fetch_from_hdf("covariances")
@@ -604,7 +604,7 @@ class ImpliedBetaEnvironment():
         pfs: dict
             output of poco.rank_sort()
         """
-        # pfs=carry
+        # pfs=strat
         # vcv = BImpl._fetch_from_hdf("covariances")
         # fetch covariances
         # vcv = vcv.resample('M', axis='items').last().shift(1, axis="items")
@@ -690,7 +690,7 @@ class ImpliedBetaEnvironment():
         # these_cur = self._fetch_from_hdf("eq/b_impl").columns
         # this_idx = self._fetch_from_hdf("eq/b_impl").index
 
-        # carry
+        # strat
         carry = poco.rank_sort(
             returns=rx_m,
             signals=fdisc_d.resample('M').mean().shift(1),
@@ -729,7 +729,7 @@ class ImpliedBetaEnvironment():
         # self._store_to_hdf(
         #     {"returns/rxm_panel_by_day": rxm_panel_by_day\
         #         .loc[these_cur,this_idx[0]:,:]})
-        self._store_to_hdf({"carry": pf_carry})
+        self._store_to_hdf({"strat": pf_carry})
         self._store_to_hdf({"mom": pf_mom})
         self._store_to_hdf({"eq/flb": pf_flb_eq, "bis/flb": pf_flb_bis})
         self._store_to_hdf({"s_d": s_d, "rx_m": rx_m, "s_m": s_m})
@@ -800,7 +800,7 @@ if __name__ == "__main__":
     BImpl._fetch_from_hdf("eq/b_impl").rolling(252).mean().plot()
 
     # returns data ----------------------------------------------------------
-    # weight of currencies in the carry portfolios
+    # weight of currencies in the strat portfolios
     with open(path_to_spot+"data_wmr_dev_m.p", mode='rb') as fname:
         data_m = pickle.load(fname)
 
@@ -856,8 +856,8 @@ if __name__ == "__main__":
     # rx = rx.loc[b_impl.index[0]:,b_impl.columns]
     #
 
-    # carry = BImpl._fetch_from_hdf("carry")
-    # (carry["p3"]-carry["p1"]).cumsum().plot()
+    # strat = BImpl._fetch_from_hdf("strat")
+    # (strat["p3"]-strat["p1"]).cumsum().plot()
     # flb = BImpl._fetch_from_hdf("eq/flb")
     # (flb["p3"]-flb["p1"]).cumsum().plot(color='r')
 
