@@ -339,6 +339,28 @@ class VolatilitySmile:
 
         return res
 
+    def get_mfisemivariance(self):
+        """
+
+        Returns
+        -------
+
+        """
+        # from volas to call prices
+        call_p = bs_price(forward=self.forward, strike=self.strike,
+                          rf=self.rf, tau=self.tau, vola=self.vola)
+
+        # break into up- and downside
+        idx_down = self.strike <= self.forward
+        idx_up = self.strike >= self.forward
+
+        mfiv_down = mfivariance(call_p[idx_down], self.strike[idx_down],
+                                self.forward, self.rf, self.tau)
+        mfiv_up = mfivariance(call_p[idx_up], self.strike[idx_up],
+                              self.forward, self.rf, self.tau)
+
+        return mfiv_down, mfiv_up
+
     def get_mfiskewness(self):
         """
 
