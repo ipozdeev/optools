@@ -191,12 +191,12 @@ if __name__ == "__main__":
 
     all_m = poco.many_monthly_rx(
         s_d=data_d["spot_ret"].loc["2007":], f_d=data_d["fwd_disc"].loc["2007":])
-    all_m[max(all_m.keys())+1] = rx_m
+    all_m[max(all_m.get_keys()) + 1] = rx_m
 
-    flbs = pd.DataFrame(columns=range(len(all_m.keys())), index=b_impl_d.index)
+    flbs = pd.DataFrame(columns=range(len(all_m.get_keys())), index=b_impl_d.index)
 
     # run strategies
-    for p in range(len(all_m.keys())):
+    for p in range(len(all_m.get_keys())):
         # p = 0
         ret = all_m[p].loc[b_impl_d.index[0]:]
         # betas
