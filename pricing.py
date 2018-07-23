@@ -733,13 +733,13 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=False):
 #             xs.update({p/100 : res.x})
 #             loss.update({res.fun : p/100})
 # 
-#         logger.debug(("Losses over w:\n"+"%04d "*len(loss.keys())+"\n") %
+#         logger.debug(("Losses over w:\n"+"%04d "*len(loss.get_keys())+"\n") %
 #             tuple(range(1,50,2)))
-#         logger.debug(("\n"+"%4.3f "*len(loss.keys())+"\n") %
-#             tuple(loss.keys()))
+#         logger.debug(("\n"+"%4.3f "*len(loss.get_keys())+"\n") %
+#             tuple(loss.get_keys()))
 # 
 #         # find minimum of losses
-#         best_p = loss[min(loss.keys())]
+#         best_p = loss[min(loss.get_keys())]
 #         w = np.array([best_p, 1-best_p])
 # 
 #         # mu, sigma
