@@ -54,7 +54,8 @@ def wrapper_smile_from_series(series, tau, fill_no_arb=False):
     return res
 
 
-def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs):
+def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs,
+                             svix=False):
     """Calculate MFIV from iv of combinations, forward and the rest.
 
     Find valid combinations (by name) in `series`, constructs a
@@ -73,8 +74,9 @@ def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs):
     tau : float
         maturity, in years
     intpl_kwargs : dict
-
     estim_kwargs : dict
+    svix : bool
+        True to use simple variance swap rate of Martin (2017) instead
 
     Returns
     -------
@@ -87,7 +89,7 @@ def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs):
 
     smile_interp = smile.dropna(from_index=True).interpolate(**intpl_kwargs)
 
-    res = smile_interp.get_mfivariance(**estim_kwargs)
+    res = smile_interp.get_mfivariance(svix=svix, **estim_kwargs)
 
     return res
 

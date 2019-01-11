@@ -288,6 +288,46 @@ def mfivariance(call_p, strike, forward_p, rf, tau):
     return res
 
 
+def simple_var_swap_rate(call_p, strike, forward_p, rf, tau):
+    """Calculate simple variance swap rate as in Martin (2017).
+
+    Parameters
+    ----------
+    call_p : numpy.ndarray
+    strike : numpy.ndarray
+    forward_p : float
+    rf : float
+    tau : float
+        maturity, in years
+
+    Returns
+    -------
+    res : float
+        swap rate, annualized
+
+    """
+    # split into otm calls and puts
+    otm_call_idx = strike >= forward_p
+
+    # otm calls
+    otm_call_p = call_p[otm_call_idx]
+    otm_call_strike = strike[otm_call_idx]
+
+    # convert itm calls to puts
+    otm_put_strike = strike[~otm_call_idx]
+    otm_put_p = call_to_put(call_p[~otm_call_idx], otm_put_strike,
+                            forward_p, rf, tau)
+
+    # integrate
+    res = \
+        integrate.simps(otm_put_p, otm_put_strike) + \
+        integrate.simps(otm_call_p, otm_call_strike)
+
+    res *= 2 * np.exp(rf * tau) / forward_p**2 / tau
+
+    return res
+
+
 def mfiskewness(call_p, strike, spot, forward, rf, tau):
     """Calculate the MFIskewness.
 

@@ -9,7 +9,8 @@ from optools.helpers import strike_range
 from mpl_toolkits.mplot3d import Axes3D
 
 from optools.pricing import (bs_price, strike_from_delta, mfivariance,
-                             mfiskewness, vanillas_from_combinations)
+                             mfiskewness, vanillas_from_combinations,
+                             simple_var_swap_rate)
 from optools.helpers import fast_norm_cdf
 
 
@@ -313,7 +314,7 @@ class VolatilitySmile:
 
         return res
 
-    def get_mfivariance(self):
+    def get_mfivariance(self, svix=False):
         """Calculate the model-free implied variance.
 
         The mfiv is calculated as the integral over call prices weighted by
@@ -323,6 +324,8 @@ class VolatilitySmile:
 
         Parameters
         ----------
+        svix : bool
+            True to calculate Martin (2017) simple variance swap rates
 
         Returns
         -------
@@ -335,7 +338,12 @@ class VolatilitySmile:
                           rf=self.rf, tau=self.tau, vola=self.vola)
 
         # mfiv
-        res = mfivariance(call_p, self.strike, self.forward, self.rf, self.tau)
+        if svix:
+            res = simple_var_swap_rate(call_p, self.strike, self.forward,
+                                       self.rf, self.tau)
+        else:
+            res = mfivariance(call_p, self.strike, self.forward,
+                              self.rf, self.tau)
 
         return res
 
