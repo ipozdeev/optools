@@ -54,8 +54,7 @@ def wrapper_smile_from_series(series, tau, fill_no_arb=False):
     return res
 
 
-def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs,
-                             svix=False):
+def wrapper_mfiv_from_series(series, tau, intpl_kwargs, svix=False):
     """Calculate MFIV from iv of combinations, forward and the rest.
 
     Find valid combinations (by name) in `series`, constructs a
@@ -84,12 +83,15 @@ def wrapper_mfiv_from_series(series, tau, intpl_kwargs, estim_kwargs,
         mfiv, in ((frac of 1))^2 p.a.
 
     """
+    if intpl_kwargs is None:
+        intpl_kwargs = {}
+
     # vol smile -------------------------------------------------------------
     smile = wrapper_smile_from_series(series, tau)
 
     smile_interp = smile.dropna(from_index=True).interpolate(**intpl_kwargs)
 
-    res = smile_interp.get_mfivariance(svix=svix, **estim_kwargs)
+    res = smile_interp.get_mfivariance(svix=svix)
 
     return res
 
