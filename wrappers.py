@@ -6,19 +6,19 @@ from optools.volsurface import VolatilitySmile
 import numpy as np
 
 
-def wrapper_smile_from_series(series, tau, fill_no_arb=False):
-    """
+def smile_from_series(series: pd.Series, tau: float,
+                      fill_no_arb=False) -> VolatilitySmile:
+    """Construct vol smile from suitably indexed Series.
 
     Parameters
     ----------
     series
+        cointaining entries 'spot', 'forward', 'rf', 'div_yield', 'atm_vola',
+        '10bf', '10rr', '25bf', '25rr' etc.
     tau
     intpl_kwargs
     estim_kwargs
     fill_no_arb : bool
-
-    Returns
-    -------
 
     """
     if fill_no_arb:
@@ -54,7 +54,8 @@ def wrapper_smile_from_series(series, tau, fill_no_arb=False):
     return res
 
 
-def wrapper_mfiv_from_series(series, tau, intpl_kwargs, svix=False):
+def mfiv_from_series(series, tau, intpl_kwargs=None, svix=False,
+                     fill_no_arb=False):
     """Calculate MFIV from iv of combinations, forward and the rest.
 
     Find valid combinations (by name) in `series`, constructs a
@@ -76,6 +77,8 @@ def wrapper_mfiv_from_series(series, tau, intpl_kwargs, svix=False):
     estim_kwargs : dict
     svix : bool
         True to use simple variance swap rate of Martin (2017) instead
+    fill_no_arb : bool
+        True to fill one of (spot, fwd, rf, div_yield) if missing
 
     Returns
     -------
@@ -87,7 +90,7 @@ def wrapper_mfiv_from_series(series, tau, intpl_kwargs, svix=False):
         intpl_kwargs = {}
 
     # vol smile -------------------------------------------------------------
-    smile = wrapper_smile_from_series(series, tau)
+    smile = smile_from_series(series, tau, fill_no_arb=fill_no_arb)
 
     smile_interp = smile.dropna(from_index=True).interpolate(**intpl_kwargs)
 

@@ -16,7 +16,7 @@ path = "c:/users/" + usr + "/google drive/" + \
 # logger = logging.getLogger()
 # logger.setLevel(logging.DEBUG)
 
-from optools import pricing as op, pricing_wrappers as opwraps
+from optools import pricing as op, wrappers as opwraps
 
 
 class TestFromWystup(unittest.TestCase):

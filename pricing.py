@@ -6,7 +6,8 @@ from scipy.optimize import fsolve
 from scipy import integrate
 
 
-def bs_price(strike, rf, tau, vola, div_yield=None, spot=None, forward=None):
+def bs_price(strike, rf, tau, vola, div_yield=None, spot=None, forward=None,
+             call=True):
     """Compute the Black-Scholes option price.
 
     Vectorized for `strike` and `vola`. Definitions are as in Wystup (2006).
@@ -27,12 +28,16 @@ def bs_price(strike, rf, tau, vola, div_yield=None, spot=None, forward=None):
         spot price of the underlying
     forward : float
         forward price of the underlying
+    call : bool
+        True (False) to return prices of call (put) options
 
     Returns
     -------
     res : float
         price or numpy.ndarray
     """
+    phi = call * 2 - 1
+
     if forward is None:
         try:
             forward = spot * np.exp((rf - div_yield)*tau)
@@ -44,8 +49,9 @@ def bs_price(strike, rf, tau, vola, div_yield=None, spot=None, forward=None):
              (vola * np.sqrt(tau))
     d_minus = d_plus - vola * np.sqrt(tau)
 
-    res = np.exp(-rf * tau) *\
-        (forward * fast_norm_cdf(d_plus) - strike * fast_norm_cdf(d_minus))
+    res = phi * np.exp(-rf * tau) * \
+          (forward * fast_norm_cdf(phi * d_plus) -
+           strike * fast_norm_cdf(phi * d_minus))
 
     # return
     return res
@@ -444,6 +450,28 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=False):
         args["div_yield"] = rf - np.log(forward / spot) / tau
 
     return args
+
+
+def foreign_domestic_symmetry(option_price_ab, strike_ab, spot_ab,
+                              is_call=False):
+    """
+
+    Parameters
+    ----------
+    option_price_ab : float or numpy.ndarray or pandas.Series
+        of prices (in currency b) of options to transact 1 unit of currency a
+    strike_ab : float or numpy.ndarray or pandas.Series
+    spot_ab : float
+
+    Returns
+    -------
+
+    """
+    option_price_ba = option_price_ab / strike_ab / spot_ab
+
+    strike_ba = 1 / strike_ab
+
+    return option_price_ba, strike_ba
 
 
 # def bs_iv_objective(c_hat, forward_p, strike, rf, tau, sigma):
