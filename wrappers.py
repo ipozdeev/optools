@@ -13,8 +13,8 @@ def smile_from_series(series: pd.Series, tau: float,
     Parameters
     ----------
     series
-        cointaining entries 'spot', 'forward', 'rf', 'div_yield', 'atm_vola',
-        '10bf', '10rr', '25bf', '25rr' etc.
+        cointaining entries 'spot', 'forward', 'rf', 'div_yield', 'atm_vol',
+        '10b', '10r', '25b', '25r' etc.
     tau
     intpl_kwargs
     estim_kwargs
@@ -30,7 +30,7 @@ def smile_from_series(series: pd.Series, tau: float,
                                                        **no_arb_dict)))
 
     # find combinations: these have to start with digits --------------------
-    combies_regex = re.compile("[0-9]+[a-z]{2}")
+    combies_regex = re.compile("[0-9]{2}[a-z]")
     combies_names = list(filter(combies_regex.match, series.index))
     group_fun = lambda x: int(x[:2]) / 100
 
@@ -44,7 +44,7 @@ def smile_from_series(series: pd.Series, tau: float,
     # vol smile -------------------------------------------------------------
     res = VolatilitySmile.by_delta_from_combinations(
         combies=combies,
-        atm_vola=series.loc["atm_vola"],
+        atm_vol=series.loc["atm_vol"],
         spot=series.loc["spot"],
         forward=series.loc["forward"],
         rf=series.loc["rf"],
@@ -67,10 +67,10 @@ def mfiv_from_series(series, tau, intpl_kwargs=None, svix=False,
         indexed with
         - spot
         - forward
-        - different risk reversals and butterflies, labeled '[0-9]+(rr|bf)'
+        - different risk reversals and butterflies, labeled '[0-9]+(r|b)'
         - rf
         - div_yield
-        - atm_vola
+        - atm_vol
     tau : float
         maturity, in years
     intpl_kwargs : dict

@@ -174,18 +174,18 @@ def bs_vega(forward, strike, y, tau, sigma):
     return vega
 
 
-def vanillas_from_combinations(rr, bf, atm, delta=None):
+def vanillas_from_combinations(r, b, atm_vol, delta=None):
     """Calculate implied vola of calls from that of put/call combinations.
 
     See Wystup, p.24.
 
     Parameters
     ----------
-    atm : float
+    atm_vol : float
         implied vola of the at-the-money option
-    rr : float
+    r : float
         implied vola of the risk reversal
-    bf : float
+    b : float
         implied vola of the butterfly contract
     delta : float
         delta, in ((frac of 1)), e.g. 0.25 or 0.10
@@ -199,8 +199,8 @@ def vanillas_from_combinations(rr, bf, atm, delta=None):
     """
     # implied volas
     two_ivs = np.array([
-        atm + bf + 0.5 * rr,
-        atm + bf - 0.5 * rr
+        atm_vol + b + 0.5 * r,
+        atm_vol + b - 0.5 * r
     ])
 
     # if delta was not supplied, return list
@@ -452,8 +452,7 @@ def fill_by_no_arb(spot, forward, rf, div_yield, tau, raise_errors=False):
     return args
 
 
-def foreign_domestic_symmetry(option_price_ab, strike_ab, spot_ab,
-                              is_call=False):
+def foreign_domestic_symmetry(option_price_ab, strike_ab, spot_ab):
     """
 
     Parameters

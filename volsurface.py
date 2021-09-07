@@ -136,7 +136,7 @@ class VolatilitySmile:
         return res
 
     @classmethod
-    def by_delta_from_combinations(cls, combies, atm_vola, spot, forward, rf,
+    def by_delta_from_combinations(cls, combies, atm_vol, spot, forward, rf,
                                    div_yield, tau):
         """Construct VolatilitySmile from delta-vola of option combinations.
 
@@ -151,10 +151,10 @@ class VolatilitySmile:
         ----------
         combies : dict
             of (delta: combi) pairs where combi is a dict-like as follows:
-                {'rr': iv of the risk reversal,
-                 'bf': iv of the butterfly}
+                {'r': iv of the risk reversal,
+                 'b': iv of the butterfly}
             all ivs are in (frac of 1) p.a.
-        atm_vola : float
+        atm_vol : float
             at-the-money call volatility, in (frac of 1) p.a.
         spot: float
             underlying price
@@ -163,7 +163,7 @@ class VolatilitySmile:
         rf: float
             risk-free rate, in (frac of 1) p.a.
         div_yield : float
-            div yield (rf rate of the base currency), in (frac of 1) p.a.
+            div yield (rf rate of the base name), in (frac of 1) p.a.
         tau : float
             time to maturity, in years
 
@@ -177,7 +177,7 @@ class VolatilitySmile:
         volas = list()
 
         for k, v in combies.items():
-            volas.append(vanillas_from_combinations(atm=atm_vola,
+            volas.append(vanillas_from_combinations(atm_vol=atm_vol,
                                                     delta=k, **v))
 
         volas = pd.concat(volas)
@@ -185,9 +185,9 @@ class VolatilitySmile:
         # add delta of atm (slightly different than 0.5, as in
         #   Wystup (2006), eq. 1.96)
         atm_delta = np.exp(-div_yield * tau) * \
-            fast_norm_cdf(0.5 * atm_vola * np.sqrt(tau))
+            fast_norm_cdf(0.5 * atm_vol * np.sqrt(tau))
 
-        volas.loc[atm_delta] = atm_vola
+        volas.loc[atm_delta] = atm_vol
 
         res = cls.by_delta(volas,
                            spot, forward, rf, div_yield, tau, is_call=True)
