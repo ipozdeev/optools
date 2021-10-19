@@ -27,10 +27,8 @@ class VolatilitySmile:
 
     Parameters
     ----------
-    vola: numpy.ndarray
+    vola_series: pandas.Series
         implied vol
-    strike: numpy.ndarray
-        of option strike prices
     spot: float, optional
         underlying price
     forward : float, optional
@@ -45,8 +43,7 @@ class VolatilitySmile:
     """
     def __init__(self, vola_series, spot=None, forward=None, rf=None,
                  div_yield=None, tau=None):
-        """
-        """
+
         # sort, convert to float, rename
         smile = vola_series.astype(float).sort_index().rename(tau)
 
@@ -318,9 +315,9 @@ class VolatilitySmile:
         """Calculate the model-free implied variance.
 
         The mfiv is calculated as the integral over call prices weighted by
-        strikes (for details see Jiang and Tian (2005)). This method first
-        transforms the volas to the prices of vanillas, then does the
-        integration using Simpson's rule.
+        strikes (for details see Jiang and Tian (2005) and Martin (2017)).
+        The volas are transformed to the prices of vanillas, then the
+        integration is done using Simpson's rule.
 
         Parameters
         ----------
@@ -335,7 +332,7 @@ class VolatilitySmile:
         """
         # from volas to call prices
         call_p = bs_price(forward=self.forward, strike=self.strike,
-                          rf=self.rf, tau=self.tau, vola=self.vola)
+                          rf=self.rf, tau=self.tau, vol=self.vola)
 
         # mfiv
         if svix:
@@ -356,7 +353,7 @@ class VolatilitySmile:
         """
         # from volas to call prices
         call_p = bs_price(forward=self.forward, strike=self.strike,
-                          rf=self.rf, tau=self.tau, vola=self.vola)
+                          rf=self.rf, tau=self.tau, vol=self.vola)
 
         # break into up- and downside
         idx_down = self.strike <= self.forward
@@ -378,7 +375,7 @@ class VolatilitySmile:
         """
         # from volas to call prices
         call_p = bs_price(forward=self.forward, strike=self.strike,
-                          rf=self.rf, tau=self.tau, vola=self.vola)
+                          rf=self.rf, tau=self.tau, vol=self.vola)
 
         # mfiv
         res = mfiskewness(call_p=call_p, strike=self.strike, spot=self.spot,

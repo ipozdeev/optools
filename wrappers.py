@@ -58,8 +58,9 @@ def mfiv_from_series(series, tau, intpl_kwargs=None, svix=False,
                      fill_no_arb=False):
     """Calculate MFIV from iv of combinations, forward and the rest.
 
-    Find valid combinations (by name) in `series`, constructs a
-    VolatilitySurface, does the estimation.
+    Finds valid combinations (by name) in `series`, constructs a
+    VolatilitySmile, interpolates in the strike dimension, numerically
+    integrates as in Jiang and Tian (2005).
 
     Parameters
     ----------
@@ -74,7 +75,6 @@ def mfiv_from_series(series, tau, intpl_kwargs=None, svix=False,
     tau : float
         maturity, in years
     intpl_kwargs : dict
-    estim_kwargs : dict
     svix : bool
         True to use simple variance swap rate of Martin (2017) instead
     fill_no_arb : bool
@@ -82,8 +82,8 @@ def mfiv_from_series(series, tau, intpl_kwargs=None, svix=False,
 
     Returns
     -------
-    res : scalar
-        mfiv, in ((frac of 1))^2 p.a.
+    res : float
+        mfiv, in (frac of 1)^2 p.a.
 
     """
     if intpl_kwargs is None:
