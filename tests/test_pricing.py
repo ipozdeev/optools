@@ -1,7 +1,7 @@
 from unittest import TestCase
 import numpy as np
 
-from optools.pricing import strike_from_delta
+from optools.greeks import strike_from_delta
 
 
 class TestEURUSD(TestCase):
@@ -27,14 +27,14 @@ class TestEURUSD(TestCase):
             div_yield=self.div_yield, tau=self.tau, vol=vol,
             is_call=True,
             is_forward=self.is_forward,
-            is_premiumadjusted=self.is_premiumadjusted
+            is_premiumadj=self.is_premiumadjusted
         )
         strike_put = strike_from_delta(
             delta=-0.25, spot=self.spot, forward=self.forward, rf=self.rf,
             div_yield=self.div_yield, tau=self.tau, vol=vol,
             is_call=False,
             is_forward=self.is_forward,
-            is_premiumadjusted=self.is_premiumadjusted
+            is_premiumadj=self.is_premiumadjusted
         )
         self.assertEqual(np.round(strike_call, 4), self.c_25_strike)
         self.assertEqual(np.round(strike_put, 4), self.p_25_strike)

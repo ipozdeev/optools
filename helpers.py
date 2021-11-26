@@ -96,35 +96,34 @@ def disc_to_cont(rate, tau):
     return res
 
 
-def strike_range(strike, k_min=None, k_max=None, step=None):
-    """
+def construct_new_x(old_x, x_min=None, x_max=None, step=None) -> np.ndarray:
+    """Construct a new range of values to be used in smile interpolation.
 
     Parameters
     ----------
-    strike
-    k_min
-    k_max
-    step
-
-    Returns
-    -------
-
+    old_x : array-like
+    x_min : float
+        minimum value of the new x
+    x_max : float
+        maximum value of the new x
+    step : float
+        increment
     """
     # range
-    strike_rng = np.ptp(strike)
+    x_range = np.ptp(old_x)
 
     # min, max
-    if k_min is None:
-        k_min = max(strike_rng / 2, min(strike) - strike_rng * 2)
-    if k_max is None:
-        k_max = max(strike) + strike_rng * 2
+    if x_min is None:
+        x_min = max(min(old_x) / 2, min(old_x) - x_range * 2)
+    if x_max is None:
+        x_max = max(old_x) + x_range * 2
     if step is None:
-        step = strike_rng / 200
+        step = np.diff(old_x).mean() / 500
 
-    strike_new = np.arange(k_min, k_max, step)
+    res = np.arange(x_min, x_max, step)
 
-    # reindex, assign a socialistic name; this will be sorted!
-    res = np.union1d(strike, strike_new).astype(np.float)
+    # # reindex, assign a socialistic name; this will be sorted!
+    # res = np.union1d(old_x, res).astype(np.float)
 
     return res
 

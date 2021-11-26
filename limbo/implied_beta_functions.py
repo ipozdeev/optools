@@ -6,7 +6,7 @@ from pandas.tseries.offsets import MonthEnd, QuarterEnd, DateOffset
 import statsmodels.api as sm
 import pickle
 
-from optools import pricing as op
+from optools import implied as op
 from optools import wrappers as wrap
 from optools.import_data import *
 
