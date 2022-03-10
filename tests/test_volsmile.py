@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from optools.volsmile import VolatilitySmile
-from optools.blackscholes import bs_price
+from optools.blackscholes import option_price
 
 
 class TestVolatilitySmile(TestCase):

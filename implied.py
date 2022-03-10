@@ -4,7 +4,7 @@ from scipy.optimize import fsolve
 from scipy import integrate
 from scipy.stats import norm
 
-from optools.blackscholes import bs_price
+from optools.blackscholes import option_price
 from optools.noarbitrage import call_put_parity
 
 
@@ -56,7 +56,7 @@ def implied_vol_bs(call_price, forward, strike, rf, tau, **kwargs):
     # objective
     def f_obj(x):
         """Objective function: call minus target call."""
-        val = bs_price(forward, strike, rf, tau, x) - call_price
+        val = option_price(forward, strike, rf, tau, x) - call_price
 
         return val
 
@@ -82,7 +82,6 @@ def vanillas_from_combinations(r, b, atm_vol, delta=None):
     delta : float
         delta, in ((frac of 1)), e.g. 0.25 or 0.10
 
-
     Returns
     -------
     res : list or pandas.Series
@@ -90,23 +89,25 @@ def vanillas_from_combinations(r, b, atm_vol, delta=None):
 
     """
     # implied volas
-    two_ivs = np.array([
+    two_ivs = [
         atm_vol + b + 0.5 * r,
         atm_vol + b - 0.5 * r
-    ])
+    ]
 
     # if delta was not supplied, return list
     if delta is None:
         return two_ivs
+    else:
+        # deltas
+        two_deltas = [delta, 1 - delta]
 
-    # deltas
-    two_deltas = [delta, 1 - delta]
+        return dict(zip(two_deltas, two_ivs))
 
-    # create a Series
-    res = pd.Series(index=two_deltas, data=two_ivs).rename("iv")
-    res.index.name = "delta"
-
-    return res
+    # # create a Series
+    # res = pd.Series(index=two_deltas, data=two_ivs).rename("iv")
+    # res.index.name = "delta"
+    #
+    # return res
 
 
 def strike_from_atm(atm_def, is_premiumadj=None, spot=None, forward=None,
@@ -138,8 +139,8 @@ def strike_from_atm(atm_def, is_premiumadj=None, spot=None, forward=None,
         return spot
     elif atm_def == "dns":
         if is_premiumadj is None:
-            raise ValueError("`is_premiumadjusted` must be set if "
-                             "`atm_def == True")
+            raise ValueError("`is_premiumadj` must be set if "
+                             "`atm_def == 'dns'")
         if is_premiumadj:
             return forward * np.exp(-0.5 * vol**2 * tau)
         else:

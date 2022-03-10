@@ -1,6 +1,8 @@
 import numpy as np
 from optools.helpers import fast_norm_cdf
 
+from typing import Union
+
 
 def d1(forward, strike, vol, tau) -> isinstance(float, np.ndarray):
     """Black-Scholes d1 (vectorized).
@@ -40,8 +42,8 @@ def d2(forward, strike, vol, tau) -> isinstance(float, np.ndarray):
     return res
 
 
-def bs_price(strike, rf, tau, vol, div_yield=None, spot=None, forward=None,
-             is_call=True) -> isinstance(float, np.ndarray):
+def option_price(strike, rf, tau, vol, div_yield=None, spot=None, forward=None,
+                 is_call=True) -> Union[float, np.ndarray]:
     """Compute the Black-Scholes option price.
 
     Vectorized for `strike` and `vola`. Definitions are as in Wystup (2006).

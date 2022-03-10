@@ -6,7 +6,7 @@ from optools.helpers import fast_norm_cdf
 from optools.blackscholes import d1, d2
 
 
-def vega(forward, strike, y, tau, sigma):
+def vega(forward, strike, div_yield, tau, sigma):
     """Compute Black-Scholes vega as in Wystup (2006)
 
     For each strike in `K` and associated `sigma` computes sensitivity of
@@ -18,7 +18,7 @@ def vega(forward, strike, y, tau, sigma):
         forward price of the underlying
     strike: numpy.ndarray
         of strike prices
-    y: float
+    div_yield: float
         dividend yield (foreign interest rate)
     tau: float
         time to maturity, in years
@@ -32,7 +32,7 @@ def vega(forward, strike, y, tau, sigma):
     """
     dplus = (np.log(forward / strike) + sigma ** 2 / 2 * tau) / \
             (sigma * np.sqrt(tau))
-    vega = forward * np.exp(-y * tau) * np.sqrt(tau) * norm.pdf(dplus)
+    vega = forward * np.exp(-div_yield * tau) * np.sqrt(tau) * norm.pdf(dplus)
 
     return vega
 
@@ -102,7 +102,7 @@ def strike_from_delta(delta, tau, vol, is_call, spot=None, forward=None,
         return delta_fun(strike) - delta
 
     # solve with fsolve, use f_prime for gradient
-    x0 = spot * 1.0
+    x0 = forward if forward is not None else spot
     if hasattr(delta, "__iter__"):
         x0 = np.array([x0, ] * len(delta))
 
