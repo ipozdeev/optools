@@ -1,12 +1,13 @@
 import pandas as pd
 import numpy as np
-from scipy.interpolate import interp1d, CubicSpline
+from scipy.interpolate import interp1d
+from scipy.misc import derivative
 from statsmodels.nonparametric.kernel_regression import KernelReg
 import matplotlib.pyplot as plt
+from numba import jit
 
-from .helpers import fast_norm_cdf, construct_new_x
-from .blackscholes import bs_price
-from .greeks import strike_from_delta
+from .helpers import construct_new_x
+from .blackscholes import option_price
 from .implied import mfivariance, simple_var_swap_rate
 
 
@@ -18,8 +19,6 @@ class VolatilitySmile:
     and other values possible.
 
     All options are by defaults call options.
-
-    TODO: think about forward, spot, rf and div_yield defaults.
 
     Parameters
     ----------
@@ -84,11 +83,12 @@ class VolatilitySmile:
 
         Parameters
         ----------
+        kind : str
+            'kernel' or one of valid kinds in interp1d, e.g. 'cubic'
         new_x : numpy.ndarray
             of strikes or deltas over which the interpolation takes place
         extrapolate : bool
-            method of extrapolation; None to skip extrapolation, 'const' for
-            extrapolation with endpoint values
+            False to extrapolate with endpoint values
         kwargs
             additional arguments to scipy.interpolate.interp1d
 
@@ -167,8 +167,8 @@ class VolatilitySmile:
                              "`greeks.strike_from_delta`.")
 
         # from volas to call prices
-        call_p = bs_price(forward=forward, strike=self.x,
-                          rf=rf, tau=self.tau, vol=self.vola)
+        call_p = option_price(forward=forward, strike=self.x,
+                              rf=rf, tau=self.tau, vol=self.vola)
 
         # mfiv
         if svix:
@@ -178,44 +178,36 @@ class VolatilitySmile:
 
         return res
 
-    def get_mfisemivariance(self):
+    def get_rnd(self, forward=None, rf=None, div_yield=None, spot=None,
+                is_call=True, x: np.ndarray=None) -> callable:
         """
-
-        Returns
-        -------
-
         """
-        # from volas to call prices
-        call_p = bs_price(forward=self.forward, strike=self.strike,
-                          rf=self.rf, tau=self.tau, vol=self.vola)
+        if not self.by_strike:
+            raise ValueError("smile must defined over strike prices for this!")
 
-        # break into up- and downside
-        idx_down = self.strike <= self.forward
-        idx_up = self.strike >= self.forward
+        min_v, max_v = self.smile.iloc[0], self.smile.iloc[-1]
 
-        mfiv_down = mfivariance(call_p[idx_down], self.strike[idx_down],
-                                self.forward, self.rf, self.tau)
-        mfiv_up = mfivariance(call_p[idx_up], self.strike[idx_up],
-                              self.forward, self.rf, self.tau)
+        # if extrapolation is w/constant values
+        f = interp1d(self.x, self.vola, kind="cubic",
+                     bounds_error=False,
+                     fill_value=(min_v, max_v))
 
-        return mfiv_down, mfiv_up
+        # estimate
+        def func_to_diff(x_):
+            c_ = option_price(x_, rf, self.tau, f(x_), div_yield,
+                              spot, forward, is_call)
+            return c_
 
-    def get_mfiskewness(self):
-        """
+        def res(x_):
+            res_ = derivative(func_to_diff, x_, dx=1e-04, n=2) \
+                * np.exp(-rf * self.tau)
+            return res_
 
-        Returns
-        -------
-
-        """
-        # from volas to call prices
-        call_p = bs_price(forward=self.forward, strike=self.strike,
-                          rf=self.rf, tau=self.tau, vol=self.vola)
-
-        # mfiv
-        res = mfiskewness(call_p=call_p, strike=self.strike, spot=self.spot,
-                          forward=self.forward, rf=self.rf, tau=self.tau)
+        if x is not None:
+            return res(x)
 
         return res
+
 
     def plot(self, **kwargs):
         """Plot the smile.
