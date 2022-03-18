@@ -43,7 +43,7 @@ def option_price(w, mu, vol, strike, rf, is_call) \
     forward_ = np.exp(mu + vol ** 2 / 2)
     res = option_price_bs(strike.reshape(-1, 1), rf,
                           forward=forward_.reshape(1, -1), tau=1,
-                          vol=vol.reshape(1, -1), is_call=is_call) \
+                          vola=vol.reshape(1, -1), is_call=is_call) \
           @ w
 
     return res

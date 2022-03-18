@@ -125,6 +125,7 @@ class VolatilitySmile:
             # estimate
             f = interp1d(self.x, self.vola, kind=kind,
                          bounds_error=(not extrapolate),
+                         assume_sorted=True,
                          fill_value=(min_v, max_v), **kwargs)
 
             # fit
@@ -138,7 +139,7 @@ class VolatilitySmile:
 
         return res
 
-    def get_mfivariance(self, forward, rf, svix=False):
+    def get_mfivariance(self, forward, rf, svix=False) -> float:
         """Calculate the model-free implied variance.
 
         The mfiv is calculated as the integral over call prices weighted by
@@ -168,7 +169,7 @@ class VolatilitySmile:
 
         # from volas to call prices
         call_p = option_price(forward=forward, strike=self.x,
-                              rf=rf, tau=self.tau, vol=self.vola)
+                              rf=rf, tau=self.tau, vola=self.vola)
 
         # mfiv
         if svix:
@@ -190,6 +191,7 @@ class VolatilitySmile:
         # if extrapolation is w/constant values
         f = interp1d(self.x, self.vola, kind="cubic",
                      bounds_error=False,
+                     assume_sorted=True,
                      fill_value=(min_v, max_v))
 
         # estimate
@@ -200,7 +202,7 @@ class VolatilitySmile:
 
         def res(x_):
             res_ = derivative(func_to_diff, x_, dx=1e-04, n=2) \
-                * np.exp(-rf * self.tau)
+                * np.exp(rf * self.tau)
             return res_
 
         if x is not None:

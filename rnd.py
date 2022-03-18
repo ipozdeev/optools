@@ -94,7 +94,7 @@ def model_free_rnd(vola, strike, forward, tau, rf, is_call):
 
     # estimate
     def func_to_diff(x_):
-        c_ = bs_price(strike=x_, rf=rf, tau=self.tau, vol=f_interp_vola(x_),
+        c_ = bs_price(strike=x_, rf=rf, tau=self.tau, vola=f_interp_vola(x_),
                       forward=forward, is_call=is_call)
         return c_
 

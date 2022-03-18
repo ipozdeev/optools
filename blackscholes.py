@@ -42,7 +42,7 @@ def d2(forward, strike, vol, tau) -> isinstance(float, np.ndarray):
     return res
 
 
-def option_price(strike, rf, tau, vol, div_yield=None, spot=None, forward=None,
+def option_price(strike, rf, tau, vola, div_yield=None, spot=None, forward=None,
                  is_call=True) -> Union[float, np.ndarray]:
     """Compute the Black-Scholes option price.
 
@@ -56,7 +56,7 @@ def option_price(strike, rf, tau, vol, div_yield=None, spot=None, forward=None,
         risk-free rate, in (frac of 1) p.a.
     tau : float
         maturity, in years
-    vol : float or numpy.ndarray
+    vola : float or numpy.ndarray
         volatility, in (frac of 1) p.a.
     div_yield : float
         dividend yield
@@ -82,7 +82,7 @@ def option_price(strike, rf, tau, vol, div_yield=None, spot=None, forward=None,
             raise TypeError("Make sure to provide rf, div_yield and spot!")
 
     res = omega * np.exp(-rf * tau) * \
-        (forward * fast_norm_cdf(omega * d1(forward, strike, vol, tau)) -
-         strike * fast_norm_cdf(omega * d2(forward, strike, vol, tau)))
+        (forward * fast_norm_cdf(omega * d1(forward, strike, vola, tau)) -
+         strike * fast_norm_cdf(omega * d2(forward, strike, vola, tau)))
 
     return res
