@@ -64,7 +64,7 @@ def option_price(strike, rf, tau, vola, div_yield=None, spot=None, forward=None,
         spot price of the underlying
     forward : float
         forward price of the underlying
-    is_call : bool
+    is_call : bool or np.ndarray
         True (False) to return prices of call (put) options
 
     Returns

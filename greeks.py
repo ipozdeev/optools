@@ -37,7 +37,7 @@ def vega(forward, strike, div_yield, tau, sigma):
     return vega
 
 
-def strike_from_delta(delta, tau, vol, is_call, spot=None, forward=None,
+def strike_from_delta(delta, tau, vola, is_call, spot=None, forward=None,
                       rf=None, div_yield=None, is_forward: bool = False,
                       is_premiumadj: bool = False) -> np.ndarray:
     """Calculate strike price given delta.
@@ -57,9 +57,9 @@ def strike_from_delta(delta, tau, vol, is_call, spot=None, forward=None,
         dividend yield, in (frac of 1) p.a.
     tau: float
         time to maturity, in years
-    vol: float or numpy.ndarray
+    vola: float or numpy.ndarray
         implied vol
-    is_call: bool
+    is_call: bool or np.ndarray
         whether options are call options
     is_forward : bool
         if delta is forward delta (dV/df)
@@ -79,23 +79,23 @@ def strike_from_delta(delta, tau, vol, is_call, spot=None, forward=None,
         if is_premiumadj:
             def delta_fun(strike):
                 res_ = omega * strike / forward * \
-                    fast_norm_cdf(omega * d2(forward, strike, vol, tau))
+                    fast_norm_cdf(omega * d2(forward, strike, vola, tau))
                 return res_
         else:
             def delta_fun(strike):
                 res_ = omega * \
-                    fast_norm_cdf(omega * d1(forward, strike, vol, tau))
+                    fast_norm_cdf(omega * d1(forward, strike, vola, tau))
                 return res_
     else:
         if is_premiumadj:
             def delta_fun(strike):
                 res_ = omega * np.exp(-rf * tau) * strike / spot * \
-                    fast_norm_cdf(omega * d2(forward, strike, vol, tau))
+                    fast_norm_cdf(omega * d2(forward, strike, vola, tau))
                 return res_
         else:
             def delta_fun(strike):
                 res_ = omega * np.exp(-div_yield * tau) * \
-                    fast_norm_cdf(omega * d1(forward, strike, vol, tau))
+                    fast_norm_cdf(omega * d1(forward, strike, vola, tau))
                 return res_
 
     def obj_fun(strike):

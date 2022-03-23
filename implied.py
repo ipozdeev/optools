@@ -111,7 +111,7 @@ def vanillas_from_combinations(r, b, atm_vol, delta=None):
 
 
 def strike_from_atm(atm_def, is_premiumadj=None, spot=None, forward=None,
-                    vol=None, tau=None) -> float:
+                    vola=None, tau=None) -> float:
     """Calculate strike of an ATM option.
 
     There can be many possible scenarios, captured by `atm_def` and
@@ -127,7 +127,7 @@ def strike_from_atm(atm_def, is_premiumadj=None, spot=None, forward=None,
     is_premiumadj : bool
     spot : float
     forward : float
-    vol : float
+    vola : float
         in frac of 1 p.a.
     tau : float
         maturity, in years
@@ -142,9 +142,9 @@ def strike_from_atm(atm_def, is_premiumadj=None, spot=None, forward=None,
             raise ValueError("`is_premiumadj` must be set if "
                              "`atm_def == 'dns'")
         if is_premiumadj:
-            return forward * np.exp(-0.5 * vol**2 * tau)
+            return forward * np.exp(-0.5 * vola ** 2 * tau)
         else:
-            return forward * np.exp(+0.5 * vol**2 * tau)
+            return forward * np.exp(+0.5 * vola ** 2 * tau)
     else:
         raise ValueError("unknown `atm_def`!")
 
