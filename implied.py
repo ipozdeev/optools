@@ -1,4 +1,3 @@
-import pandas as pd
 import numpy as np
 from scipy.optimize import fsolve
 from scipy import integrate
@@ -108,45 +107,6 @@ def vanillas_from_combinations(r, b, atm_vol, delta=None):
     # res.index.name = "delta"
     #
     # return res
-
-
-def strike_from_atm(atm_def, is_premiumadj=None, spot=None, forward=None,
-                    vola=None, tau=None) -> float:
-    """Calculate strike of an ATM option.
-
-    There can be many possible scenarios, captured by `atm_def` and
-    `is_premiumadj`:
-        - atm forward
-        - atm spot
-        - strike equal to that of a delta-neutral straddle
-            - delta being premium-adjusted or not
-
-    Parameters
-    ----------
-    atm_def : str
-    is_premiumadj : bool
-    spot : float
-    forward : float
-    vola : float
-        in frac of 1 p.a.
-    tau : float
-        maturity, in years
-
-    """
-    if atm_def == "atmf":
-        return forward
-    elif atm_def == "spot":
-        return spot
-    elif atm_def == "dns":
-        if is_premiumadj is None:
-            raise ValueError("`is_premiumadj` must be set if "
-                             "`atm_def == 'dns'")
-        if is_premiumadj:
-            return forward * np.exp(-0.5 * vola ** 2 * tau)
-        else:
-            return forward * np.exp(+0.5 * vola ** 2 * tau)
-    else:
-        raise ValueError("unknown `atm_def`!")
 
 
 def mfivariance(call_p, strike, forward, rf, tau):

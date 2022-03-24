@@ -82,26 +82,3 @@ def fit_lognormal_mix(option_price, strike, is_call: bool, forward, rf,
     res = minimize(obj_fun, x0, bounds=bounds).x
 
     return res
-
-
-def model_free_rnd(vola, strike, forward, tau, rf, is_call):
-    # if extrapolation is w/constant values
-    f_interp_vola = interp1d(
-        self.x, self.vola, kind=kind, bounds_error=(not extrapolate),
-        fill_value=(min_v, max_v),
-        **kwargs
-    )
-
-    # estimate
-    def func_to_diff(x_):
-        c_ = bs_price(strike=x_, rf=rf, tau=self.tau, vola=f_interp_vola(x_),
-                      forward=forward, is_call=is_call)
-        return c_
-
-    res = lambda x_: derivative(func_to_diff, x_, dx=1e-04, n=2) \
-                     * np.exp(-rf * self.tau)
-
-    if x is not None:
-        return res(x)
-
-    return res
