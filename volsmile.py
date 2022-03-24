@@ -6,10 +6,10 @@ from scipy.optimize import least_squares, fsolve
 from statsmodels.nonparametric.kernel_regression import KernelReg
 import matplotlib.pyplot as plt
 
-from helpers import construct_new_x
-from blackscholes import option_price as bs_price
-from implied import mfivariance, simple_var_swap_rate
-from strike import strike_from_delta, strike_from_atm
+from optools.helpers import construct_new_x
+from optools.blackscholes import option_price as bs_price
+from optools.implied import mfivariance, simple_var_swap_rate
+from optools.strike import strike_from_delta, strike_from_atm
 
 
 class VolatilitySmile:

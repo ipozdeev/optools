@@ -1,7 +1,8 @@
 import numpy as np
-from blackscholes import d2, d1
-from helpers import fast_norm_cdf
 from scipy.optimize import fsolve
+
+from optools.blackscholes import d2, d1
+from optools.helpers import fast_norm_cdf
 
 
 def strike_from_delta(delta, tau, vola, is_call, spot=None, forward=None,
