@@ -5,8 +5,8 @@ from optools.blackscholes import d2, d1
 from optools.helpers import fast_norm_cdf
 
 
-def strike_from_delta(delta, tau, vola, is_call, spot=None, forward=None,
-                      rf=None, div_yield=None, is_forward: bool = False,
+def strike_from_delta(delta, vola, tau, is_call, spot=None, forward=None,
+                      r_counter=None, r_base=None, is_forward: bool = False,
                       is_premiumadj: bool = False) -> np.ndarray:
     """Calculate strike price given delta.
 
@@ -16,19 +16,19 @@ def strike_from_delta(delta, tau, vola, is_call, spot=None, forward=None,
     ----------
     delta: float or numpy.ndarray or str
         of option deltas, in (frac of 1), or one of ('atmf', 'atms', 'dns')
+    vola: float or numpy.ndarray
+        implied vol
+    tau: float
+        time to maturity, in years
+    is_call: bool or np.ndarray
+        whether options are call options
     spot: float
         underlying price
     forward : float
-    rf: float
-        risk-free rate, in (frac of 1) p.a.
-    div_yield: float
-        dividend yield, in (frac of 1) p.a.
-    tau: float
-        time to maturity, in years
-    vola: float or numpy.ndarray
-        implied vol
-    is_call: bool or np.ndarray
-        whether options are call options
+    r_counter: float
+        risk-free rate, in frac. of 1 p.a.
+    r_base: float
+        dividend yield, in frac. of 1 p.a.
     is_forward : bool
         if delta is forward delta (dV/df)
     is_premiumadj : bool
@@ -57,13 +57,13 @@ def strike_from_delta(delta, tau, vola, is_call, spot=None, forward=None,
     else:
         if is_premiumadj:
             def delta_fun(strike):
-                res_ = omega * np.exp(-rf * tau) * strike / spot * \
-                    fast_norm_cdf(omega * d2(forward, strike, vola, tau))
+                res_ = omega * np.exp(-r_counter * tau) * strike / spot * \
+                       fast_norm_cdf(omega * d2(forward, strike, vola, tau))
                 return res_
         else:
             def delta_fun(strike):
-                res_ = omega * np.exp(-div_yield * tau) * \
-                    fast_norm_cdf(omega * d1(forward, strike, vola, tau))
+                res_ = omega * np.exp(-r_base * tau) * \
+                       fast_norm_cdf(omega * d1(forward, strike, vola, tau))
                 return res_
 
     def obj_fun(strike):
@@ -71,6 +71,7 @@ def strike_from_delta(delta, tau, vola, is_call, spot=None, forward=None,
 
     # solve with fsolve, use f_prime for gradient
     x0 = forward if forward is not None else spot
+
     if hasattr(delta, "__iter__"):
         x0 = np.array([x0, ] * len(delta))
 

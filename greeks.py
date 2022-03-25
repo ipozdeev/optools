@@ -2,7 +2,7 @@ import numpy as np
 from scipy.stats import norm
 
 
-def vega(forward, strike, div_yield, tau, sigma):
+def vega(forward, strike, r_base, tau, sigma):
     """Compute Black-Scholes vega as in Wystup (2006)
 
     For each strike in `K` and associated `sigma` computes sensitivity of
@@ -14,8 +14,9 @@ def vega(forward, strike, div_yield, tau, sigma):
         forward price of the underlying
     strike: numpy.ndarray
         of strike prices
-    div_yield: float
-        dividend yield (foreign interest rate)
+    r_base: float
+        risk-free rate in the base currency, continuously comp.,
+        in frac. of 1 p.a.
     tau: float
         time to maturity, in years
     sigma: numpy.ndarray
@@ -28,6 +29,6 @@ def vega(forward, strike, div_yield, tau, sigma):
     """
     dplus = (np.log(forward / strike) + sigma ** 2 / 2 * tau) / \
             (sigma * np.sqrt(tau))
-    vega = forward * np.exp(-div_yield * tau) * np.sqrt(tau) * norm.pdf(dplus)
+    vega = forward * np.exp(-r_base * tau) * np.sqrt(tau) * norm.pdf(dplus)
 
     return vega

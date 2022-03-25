@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.misc import derivative
+from scipy.integrate import simps
 from scipy.optimize import least_squares, fsolve
 from statsmodels.nonparametric.kernel_regression import KernelReg
 import matplotlib.pyplot as plt
@@ -29,7 +30,8 @@ class VolatilitySmile:
     def __call__(self, *args, **kwargs):
         return self.mapping(*args, **kwargs)
 
-    def get_mfivariance(self, forward, rf, svix=False) -> float:
+    def get_mfivariance(self, forward, r_counter, svix=False, limits=None,
+                        dk=1e-04) -> float:
         """Calculate the model-free implied variance.
 
         The mfiv is calculated as the integral over call prices weighted by
@@ -39,47 +41,76 @@ class VolatilitySmile:
 
         Parameters
         ----------
+        forward : float
+        r_counter : float
+            in frac of 1 p.a.
         svix : bool
             True to calculate Martin (2017) simple variance swap rates
+        limits : tuple of floats
+            limits of integration; defaults to (forward/3, forward*2)
+        dk : float
+            integration step size
 
         Returns
         -------
-        res : float
+        float
             mfiv, in (frac of 1) p.a.
-
         """
         if self.tau is None:
             raise ValueError("parameter `tau` must be set on instantiation.")
 
-        # if strike price is not on the x-axis, need to convert
-        if not self.by_strike:
-            raise ValueError("the smile must be by strike price. convert "
-                             "deltas to strikes first using "
-                             "`greeks.strike_from_delta`.")
+        # call pricer
+        def call_pricer(k_):
+            return bs_price(forward=forward, strike=k_,
+                            r_counter=r_counter, tau=self.tau, vola=self(k_), is_call=True)
 
-        # from volas to call prices
-        call_p = bs_price(forward=forward, strike=self.x,
-                          rf=rf, tau=self.tau, vola=self.vola, is_call=True)
+        # put pricer
+        def put_pricer(k_):
+            return bs_price(forward=forward, strike=k_,
+                            r_counter=r_counter, tau=self.tau, vola=self(k_),
+                            is_call=False)
+
+        dk = 1e-04
+        if limits is None:
+            k_min, k_max = forward / 3, forward * 2
+        else:
+            k_min, k_max = limits
+
+        k_put = np.arange(k_min, forward, dk)
+        k_call = np.arange(forward, k_max, dk)
+        v = 2 * np.exp(r_counter * self.tau) * (
+            simps(y=put_pricer(k_put) / k_put ** 2, x=k_put) +
+            simps(y=call_pricer(k_call) / k_call ** 2, x=k_call)
+        )
 
         # mfiv
         if svix:
-            res = simple_var_swap_rate(call_p, self.x, forward, rf, self.tau)
+            v = 2 * np.exp(r_counter * self.tau) / (forward ** 2) * (
+                simps(y=put_pricer(k_put), x=k_put) +
+                simps(y=call_pricer(k_call), x=k_call)
+            )
         else:
-            res = mfivariance(call_p, self.x, forward, rf, self.tau)
+            v = 2 * np.exp(r_counter * self.tau) * (
+                simps(y=put_pricer(k_put) / k_put ** 2, x=k_put) +
+                simps(y=call_pricer(k_call) / k_call ** 2, x=k_call)
+            )
 
-        return res
+        # annualize
+        v /= self.tau
 
-    def get_rnd(self, rf, forward=None, spot=None, div_yield=None) -> \
+        return v
+
+    def get_rnd(self, r_counter, forward=None, spot=None, r_base=None) -> \
             callable:
         """Get risk-neutral density estimator of Breeden and Litzenberger.
 
         Parameters
         ----------
-        rf : float
+        r_counter : float
             risk-free rate (rate in counter currency), in frac of 1 p.a.
         forward : float
         spot : float
-        div_yield : float
+        r_base : float
             dividend yield (rate in base currency), in frac of 1 p.a.
 
         Returns
@@ -89,15 +120,14 @@ class VolatilitySmile:
         """
         # the Black-Schole formula at K is being differentiated twice
         def func_to_diff(x_):
-            c_ = bs_price(strike=x_, rf=rf, tau=self.tau,
-                          vola=self(x_), div_yield=div_yield,
-                          spot=spot, forward=forward, is_call=True)
+            c_ = bs_price(strike=x_, r_counter=r_counter, tau=self.tau,
+                          vola=self(x_), forward=forward, is_call=True)
             return c_
 
         # step of 1e-04 should be enough
         def res(x_):
             res_ = derivative(func_to_diff, x_, dx=1e-04, n=2) \
-                * np.exp(rf * self.tau)
+                * np.exp(r_counter * self.tau)
 
             return res_
 
@@ -148,6 +178,7 @@ class SABR(VolatilitySmile):
             return res_
 
         def mapping(k):
+
             z = v / a * (f * k) ** ((1 - b) / 2) * np.log(f / k)
 
             res_ = a / \
@@ -167,6 +198,20 @@ class SABR(VolatilitySmile):
                         (2 - 3 * r ** 2) / 24 * v ** 2
                     ) * self.tau
                 )
+
+            res_ = np.where(
+                np.equal(k, f),
+                a / f ** (1 - b) * (
+                    1 +
+                    (
+                        (1 - b) ** 2 / 24 * a ** 2 / f ** (2 - 2 * b) +
+                        0.25 * r * b * a * v / f ** (1 - b) +
+                        (2 - 3 * r ** 2) / 24 * v ** 2
+                    ) * self.tau
+                ),
+                res_
+            )
+
             return res_
 
         super(SABR, self).__init__(tau=tau, mapping=mapping)
@@ -187,8 +232,8 @@ class SABR(VolatilitySmile):
 
     @classmethod
     def fit_to_fx(cls, tau, v_atm: float, contracts: dict,
-                  spot=None, forward=None, rf=None, div_yield=None,
-                  delta_conventions=None):
+                  spot=None, forward=None, r_counter=None, r_base=None,
+                  delta_conventions=None, beta=1.0):
         """Fit to FX contracts (ATM, market strangles and risk reversals).
 
         Fully based on the algorithm in Clark (2011), ch. 3.7.1
@@ -211,13 +256,16 @@ class SABR(VolatilitySmile):
             spot quote
         forward : float
             forward outright quote
-        rf : float
-            risk-free rate, in frac of 1 p.a.
-        div_yield : float
-            dividend yield, in frac of 1 p.a.
+        r_counter : float
+            risk-free rate in the counter currency, cont. comp.,
+            in frac of 1 p.a.
+        r_base : float
+            risk-free rate in the base currency, cont. comp.,
+            in frac of 1 p.a.
         delta_conventions : dict
             {'atm_def': str, 'is_forward': bool, 'is_premiumadj': bool}
-
+        beta : float
+            beta parameter in SABR
         """
         # number of different deltas
         n = len(contracts)
@@ -230,8 +278,8 @@ class SABR(VolatilitySmile):
         # pack all the other data as a shorthand
         data_rest = {"spot": spot,
                      "forward": forward,
-                     "rf": rf,
-                     "div_yield": div_yield}
+                     "r_counter": r_counter,
+                     "r_base": r_base}
 
         # determine atm strike; SABR IV at this level should match `v_atm`
         k_atm = strike_from_atm(atm_def, is_premiumadj=is_premiumadj,
@@ -258,7 +306,7 @@ class SABR(VolatilitySmile):
             # market strangle price (premium) is the sum of call and put;
             v_tgt_ = bs_price(strike=k_ms_, tau=tau, vola=sigma_ms_,
                               is_call=np.array([True, False]),
-                              **data_rest).sum()
+                              forward=forward, r_counter=r_counter).sum()
 
             d.append(d_)
             k_ms += k_ms_.tolist()
@@ -274,7 +322,7 @@ class SABR(VolatilitySmile):
         sigma_rr = np.array(sigma_rr)
 
         def get_sabr(par_) -> callable:
-            """SABR getter with beta=1.
+            """SABR getter.
 
             Parameters
             ----------
@@ -282,7 +330,7 @@ class SABR(VolatilitySmile):
                 (init_vola, volvol, rho)
             """
             res_ = SABR(
-                forward=data_rest["forward"], tau=tau, beta=1,
+                forward=data_rest["forward"], tau=tau, beta=beta,
                 init_vola=par_[0], volvol=par_[1], rho=par_[2]
             )
 
@@ -317,7 +365,7 @@ class SABR(VolatilitySmile):
 
             v_x = bs_price(strike=k_ms, tau=tau, vola=sabr_(k_ms),
                            is_call=np.array([True, False] * n),
-                           **data_rest) \
+                           forward=forward, r_counter=r_counter) \
                 .reshape(-1, 2) \
                 .sum(axis=1)
 

@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 from numpy.testing import assert_almost_equal
 
-from volsmile import SABR
+from smile import SABR
 from strike import strike_from_delta
 
 
@@ -14,8 +14,8 @@ class TestClark(unittest.TestCase):
         self.data_rest = {
             "spot": 1.3465,
             "forward": 1.3395,
-            "rf": 2.94 / 100,
-            "div_yield": 3.46 / 100
+            "r_counter": 2.94 / 100,
+            "r_base": 3.46 / 100
         }
         self.delta_conventions = {
             "is_forward": False,

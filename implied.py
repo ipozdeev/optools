@@ -65,50 +65,6 @@ def implied_vol_bs(call_price, forward, strike, rf, tau, **kwargs):
     return res
 
 
-def vanillas_from_combinations(r, b, atm_vol, delta=None):
-    """Calculate implied vola of calls from that of put/call combinations.
-
-    See Wystup, p.24.
-
-    Parameters
-    ----------
-    atm_vol : float
-        implied vola of the at-the-money option
-    r : float
-        implied vola of the risk reversal
-    b : float
-        implied vola of the butterfly contract
-    delta : float
-        delta, in ((frac of 1)), e.g. 0.25 or 0.10
-
-    Returns
-    -------
-    res : list or pandas.Series
-        of implied volas; pandasSeries indexed by delta if `delta` was provided
-
-    """
-    # implied volas
-    two_ivs = [
-        atm_vol + b + 0.5 * r,
-        atm_vol + b - 0.5 * r
-    ]
-
-    # if delta was not supplied, return list
-    if delta is None:
-        return two_ivs
-    else:
-        # deltas
-        two_deltas = [delta, 1 - delta]
-
-        return dict(zip(two_deltas, two_ivs))
-
-    # # create a Series
-    # res = pd.Series(index=two_deltas, data=two_ivs).rename("iv")
-    # res.index.name = "delta"
-    #
-    # return res
-
-
 def mfivariance(call_p, strike, forward, rf, tau):
     """Calculate the mfiv as the integral over call prices.
 
