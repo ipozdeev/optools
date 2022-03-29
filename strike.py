@@ -1,8 +1,7 @@
 import numpy as np
 from scipy.optimize import fsolve
 
-from optools.blackscholes import d2, d1
-from optools.helpers import fast_norm_cdf
+from optools.greeks import *
 
 
 def strike_from_delta(delta, vola, tau, is_call, spot=None, forward=None,
@@ -45,25 +44,23 @@ def strike_from_delta(delta, vola, tau, is_call, spot=None, forward=None,
     # function to calculate delta given strike and the rest
     if is_forward:
         if is_premiumadj:
-            def delta_fun(strike):
-                res_ = omega * strike / forward * \
-                    fast_norm_cdf(omega * d2(forward, strike, vola, tau))
+            def delta_fun(k_):
+                res_ = delta_premiumadj_forward(forward, k_, vola, tau,
+                                                is_call)
                 return res_
         else:
-            def delta_fun(strike):
-                res_ = omega * \
-                    fast_norm_cdf(omega * d1(forward, strike, vola, tau))
+            def delta_fun(k_):
+                res_ = delta_pips_forward(forward, k_, vola, tau, is_call)
                 return res_
     else:
         if is_premiumadj:
-            def delta_fun(strike):
-                res_ = omega * np.exp(-r_counter * tau) * strike / spot * \
-                       fast_norm_cdf(omega * d2(forward, strike, vola, tau))
+            def delta_fun(k_):
+                res_ = delta_premiumadj_spot(forward, spot, k_, vola,
+                                             r_counter, tau, is_call)
                 return res_
         else:
-            def delta_fun(strike):
-                res_ = omega * np.exp(-r_base * tau) * \
-                       fast_norm_cdf(omega * d1(forward, strike, vola, tau))
+            def delta_fun(k_):
+                res_ = delta_pips_spot(forward, k_, vola, r_base, tau, is_call)
                 return res_
 
     def obj_fun(strike):

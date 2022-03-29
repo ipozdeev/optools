@@ -3,7 +3,7 @@ import numpy as np
 from numpy.testing import assert_almost_equal
 
 from smile import SABR
-from strike import strike_from_delta
+from strike import strike_from_delta, strike_from_atm
 
 
 class TestClark(unittest.TestCase):
@@ -28,6 +28,18 @@ class TestClark(unittest.TestCase):
             0.1: {"ms": 3.806 / 100,
                   "rr": -1.359 / 100}
         }
+
+    def test_strike_from_atm(self):
+        """Strike from ATM (DNS)."""
+        k = strike_from_atm(
+            atm_def=self.delta_conventions["atm_def"],
+            is_premiumadj=self.delta_conventions["is_premiumadj"],
+            forward=self.data_rest["forward"],
+            vola=self.v_atm,
+            tau=self.tau
+        )
+        k_true = 1.3620  # ch. 3.5.4
+        self.assertAlmostEqual(k, k_true, places=4)
 
     def test_strike_from_delta(self):
         """Strike from delta."""
@@ -59,7 +71,7 @@ class TestClark(unittest.TestCase):
         clark_par = np.array([0.1743106, 0.81694072, -0.11268306])
         assert_almost_equal(sabr_par, clark_par, decimal=2)
 
-    def test_sabr_fit_to_fx_25d(self):
+    def test_sabr_fit_to_fx(self):
         """Calibration of SABR with 25-delta contracts."""
         sabr = SABR.fit_to_fx(
             tau=self.tau, v_atm=self.v_atm,

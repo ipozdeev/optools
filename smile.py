@@ -297,7 +297,8 @@ class SABR(VolatilitySmile):
             sigma_ms_ = v_atm + c_["ms"]
 
             # call delta is d_, put delta is -d_
-            k_ms_ = strike_from_delta(np.array([d_, -d_]), tau, sigma_ms_,
+            k_ms_ = strike_from_delta(delta=np.array([d_, -d_]), tau=tau,
+                                      vola=sigma_ms_,
                                       is_call=np.array([True, False]),
                                       is_forward=is_forward,
                                       is_premiumadj=is_premiumadj,
@@ -404,10 +405,11 @@ class SABR(VolatilitySmile):
         # v_trial = bs_price(strike=k_ms, tau=tau,
         #                    vola=sabr(k_ms),
         #                    is_call=np.array([True, False] * n),
-        #                    **data_rest) \
+        #                    forward=data_rest["forward"],
+        #                    r_counter=data_rest["r_counter"]) \
         #     .reshape(-1, 2) \
         #     .sum(axis=1)
-
+        #
         # print("v_trial:\n")
         # print(v_trial)
         # print("v_tgt:\n")
