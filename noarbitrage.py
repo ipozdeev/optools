@@ -1,7 +1,8 @@
 import numpy as np
 
 
-def call_put_parity(strike, forward, rf, tau, call_price=None, put_price=None):
+def call_put_parity(strike, forward, r_counter, tau, call_price=None,
+                    put_price=None):
     """Calculate the put price from the put-call parity relation.
 
     Vectorized for call_p, strike
@@ -12,7 +13,7 @@ def call_put_parity(strike, forward, rf, tau, call_price=None, put_price=None):
         strike price
     forward : float
         forward price of the underlying
-    rf : float
+    r_counter : float
         risk-free rate, aka rate in the counter currency, in frac. of 1 p.a.
     tau : float
         maturity, in years
@@ -27,11 +28,11 @@ def call_put_parity(strike, forward, rf, tau, call_price=None, put_price=None):
     assert (call_price is not None) | (put_price is not None)
 
     if put_price is None:
-        res = call_price - forward * np.exp(-rf * tau) + \
-              strike * np.exp(-rf * tau)
+        res = call_price - forward * np.exp(-r_counter * tau) + \
+              strike * np.exp(-r_counter * tau)
     else:
-        res = put_price + forward * np.exp(-rf * tau) - \
-              strike * np.exp(-rf * tau)
+        res = put_price + forward * np.exp(-r_counter * tau) - \
+              strike * np.exp(-r_counter * tau)
 
     return res
 
@@ -59,7 +60,8 @@ def covered_interest_parity(tau, spot=np.nan, forward=np.nan, r_counter=np.nan,
 
     """
     # collect all arguments
-    args = {"spot": spot, "forward": forward, "rf": r_counter, "div_yield": r_base}
+    args = {"spot": spot, "forward": forward,
+            "r_counter": r_counter, "r_base": r_base}
 
     # find one nan
     where_none = {k: v for k, v in args.items() if np.isnan(v)}
@@ -79,10 +81,10 @@ def covered_interest_parity(tau, spot=np.nan, forward=np.nan, r_counter=np.nan,
         args["spot"] = forward / np.exp((r_counter - r_base) * tau)
     elif k == "forward":
         args["forward"] = spot * np.exp((r_counter - r_base) * tau)
-    elif k == "rf":
-        args["rf"] = np.log(forward / spot) / tau + r_base
-    elif k == "div_yield":
-        args["div_yield"] = r_counter - np.log(forward / spot) / tau
+    elif k == "r_counter":
+        args["r_counter"] = np.log(forward / spot) / tau + r_base
+    elif k == "r_base":
+        args["r_base"] = r_counter - np.log(forward / spot) / tau
 
     return args
 

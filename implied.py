@@ -171,7 +171,7 @@ def mfiskewness(call_p, strike, spot, forward, rf, tau):
     # put-call parity: call for for strike > spot and put for strike <= spot
     strike_put = strike[strike <= spot]
     otm_puts = call_put_parity(call_price=call_p[strike <= spot], strike=strike_put,
-                               forward=forward, rf=rf, tau=tau)
+                               forward=forward, r_counter=rf, tau=tau)
 
     strike_call = strike[strike > spot]
     otm_calls = call_p[strike > spot]
