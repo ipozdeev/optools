@@ -2,8 +2,8 @@ import unittest
 import numpy as np
 from numpy.testing import assert_almost_equal
 
-from smile import SABR
-from strike import strike_from_delta, strike_from_atm
+from optools.smile import SABR
+from optools.strike import strike_from_delta, strike_from_atm
 
 
 class TestClark(unittest.TestCase):
