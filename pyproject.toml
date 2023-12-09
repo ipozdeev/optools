@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "optools"
+version = "0.1.0"
+description = "FX option pricing toolbox, based on 'Foreign Exchange Option Pricing: A Practitioner's Guide' by Clark."
+authors = ["ipozdeev <igor.posdeev@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pandas = "^2.0"
+scipy = "^1.11.4"
+numpy = "^1.26.2"
+matplotlib = "^3.8.2"
+statsmodels = "^0.14.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
