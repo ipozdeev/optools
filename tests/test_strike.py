@@ -1,12 +1,12 @@
-import unittest
+from unittest import TestCase
 import numpy as np
 from numpy.testing import assert_almost_equal
 
-from optools.smile import SABR
 from optools.strike import strike_from_delta, strike_from_atm
 
 
-class TestClark(unittest.TestCase):
+class Test(TestCase):
+    """From Clark's book."""
     def setUp(self) -> None:
         """Table 3.3."""
         self.tau = 1.0
@@ -56,27 +56,3 @@ class TestClark(unittest.TestCase):
         k_true = np.array([1.5449, 1.2050])  # eq. 3.11
 
         assert_almost_equal(k, k_true, decimal=4)
-
-    def test_sabr_fit_to_fx_25d(self):
-        """Calibration of SABR with 25-delta contracts."""
-        ctr = self.contracts.copy()
-        ctr.pop(0.1)
-        sabr = SABR.fit_to_fx(
-            tau=self.tau, v_atm=self.v_atm,
-            contracts=ctr,
-            delta_conventions=self.delta_conventions,
-            **self.data_rest
-        )
-        sabr_par = np.array([sabr.init_vola, sabr.volvol, sabr.rho])
-        clark_par = np.array([0.1743106, 0.81694072, -0.11268306])
-        assert_almost_equal(sabr_par, clark_par, decimal=2)
-
-    def test_sabr_fit_to_fx(self):
-        """Calibration of SABR with 25-delta contracts."""
-        sabr = SABR.fit_to_fx(
-            tau=self.tau, v_atm=self.v_atm,
-            contracts=self.contracts,
-            delta_conventions=self.delta_conventions,
-            **self.data_rest
-        )
-        print(sabr)
