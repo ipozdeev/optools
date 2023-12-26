@@ -1,15 +1,11 @@
 import pandas as pd
 import numpy as np
-from scipy.interpolate import interp1d
-from scipy.misc import derivative
 from scipy.integrate import simps
 from scipy.optimize import least_squares, fsolve
-from statsmodels.nonparametric.kernel_regression import KernelReg
 import matplotlib.pyplot as plt
+from typing import Union
 
-from optools.helpers import construct_new_x
 from optools.blackscholes import option_price as bs_price
-from optools.implied import mfivariance, simple_var_swap_rate
 from optools.strike import strike_from_delta, strike_from_atm
 
 
@@ -62,15 +58,14 @@ class VolatilitySmile:
         # call pricer
         def call_pricer(k_):
             return bs_price(forward=forward, strike=k_,
-                            r_counter=r_counter, tau=self.tau, vola=self(k_), is_call=True)
+                            rf=r_counter, tau=self.tau, vola=self(k_), is_call=True)
 
         # put pricer
         def put_pricer(k_):
             return bs_price(forward=forward, strike=k_,
-                            r_counter=r_counter, tau=self.tau, vola=self(k_),
+                            rf=r_counter, tau=self.tau, vola=self(k_),
                             is_call=False)
 
-        dk = 1e-04
         if limits is None:
             k_min, k_max = forward / 3, forward * 2
         else:
@@ -100,39 +95,48 @@ class VolatilitySmile:
 
         return v
 
-    def get_rnd(self, r_counter, forward=None, spot=None, r_base=None) -> \
-            callable:
-        """Get risk-neutral density estimator of Breeden and Litzenberger.
+    def estimate_risk_neutral_density(
+            self,
+            rf: float,
+            forward: float,
+            domain: Union[float, np.ndarray] = None,
+            normalize=False
+    ) -> Union[float, np.ndarray]:
+        """Get risk-neutral density estimate of Breeden and Litzenberger.
 
         Parameters
         ----------
-        r_counter : float
-            risk-free rate (rate in counter currency), in frac of 1 p.a.
+        rf : float
+            risk-free rate in the numeraire currency, in frac of 1 p.a.
         forward : float
-        spot : float
-        r_base : float
-            dividend yield (rate in base currency), in frac of 1 p.a.
-
-        Returns
-        -------
-        callable
-            function to compute density at a given point
+        domain : array-like
+            strike to calculate the derivative; if not provided, will be inferred
+        normalize : bool
+            True to normalize the density to make it sum up to 1
         """
-        # the Black-Schole formula at K is being differentiated twice
-        def func_to_diff(x_):
-            c_ = bs_price(strike=x_, r_counter=r_counter, tau=self.tau,
-                          vola=self(x_), forward=forward, is_call=True)
-            return c_
+        if domain is None:
+            # assume six sigma events are vanishingly rare
+            # log(S_T) - log(S_t) = sigma
+            n_sigma = self(forward) * self.tau * 5
+            domain = np.arange(
+                np.exp(np.log(forward) - n_sigma),
+                np.exp(np.log(forward) + n_sigma),
+                step=1e-04
+            )
 
-        # step of 1e-04 should be enough
-        def res(x_):
-            res_ = derivative(func_to_diff, x_, dx=1e-04, n=2) \
-                * np.exp(r_counter * self.tau)
+        # the Black-Scholes formula at K is being differentiated twice
+        c_price = bs_price(strike=domain, rf=rf, tau=self.tau,
+                           vola=self(domain), forward=forward, is_call=True)
 
-            return res_
+        # (d^2 C)/(dk^2) * e^{rf}
+        res = np.diff(c_price, n=2) / np.diff(domain)[:-1] / np.diff(domain)[1:] * \
+            np.exp(rf * self.tau)
+
+        if normalize:
+            # two points are lost due to 2nd order differentiation
+            res /= simps(res, domain[1:-1])
 
         return res
-
 
     def plot(self, domain):
         """Plot."""
@@ -307,7 +311,7 @@ class SABR(VolatilitySmile):
             # market strangle price (premium) is the sum of call and put;
             v_tgt_ = bs_price(strike=k_ms_, tau=tau, vola=sigma_ms_,
                               is_call=np.array([True, False]),
-                              forward=forward, r_counter=r_counter).sum()
+                              forward=forward, rf=r_counter).sum()
 
             d.append(d_)
             k_ms += k_ms_.tolist()
@@ -366,7 +370,7 @@ class SABR(VolatilitySmile):
 
             v_x = bs_price(strike=k_ms, tau=tau, vola=sabr_(k_ms),
                            is_call=np.array([True, False] * n),
-                           forward=forward, r_counter=r_counter) \
+                           forward=forward, rf=r_counter) \
                 .reshape(-1, 2) \
                 .sum(axis=1)
 

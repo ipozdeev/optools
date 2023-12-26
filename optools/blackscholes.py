@@ -42,7 +42,7 @@ def d2(forward, strike, vola, tau) -> Union[float, np.ndarray]:
     return res
 
 
-def option_price(strike, vola, forward, r_counter, tau, is_call) \
+def option_price(strike, vola, forward, rf, tau, is_call) \
         -> Union[float, np.ndarray]:
     """Compute the Black-Scholes option price.
 
@@ -58,8 +58,8 @@ def option_price(strike, vola, forward, r_counter, tau, is_call) \
         volatility, in (frac of 1) p.a.
     forward : float
         forward price of the underlying
-    r_counter : float
-        risk-free rate in the counter currency (continuously comp), in frac.
+    rf : float
+        risk-free rate in the numeraire currency (continuously comp), in frac.
         of 1 p.a.
     tau : float
         maturity, in years
@@ -74,7 +74,7 @@ def option_price(strike, vola, forward, r_counter, tau, is_call) \
     # +1 for call, -1 for put
     omega = is_call * 2 - 1.0
 
-    res = omega * np.exp(-r_counter * tau) * (
+    res = omega * np.exp(-rf * tau) * (
         forward * fast_norm_cdf(omega * d1(forward, strike, vola, tau)) -
         strike * fast_norm_cdf(omega * d2(forward, strike, vola, tau))
     )
