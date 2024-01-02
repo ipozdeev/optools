@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "optools"
-version = "0.1.1"
+version = "0.1.2"
 description = "FX option pricing toolbox, based on 'Foreign Exchange Option Pricing: A Practitioner's Guide' by Clark."
 authors = ["ipozdeev <igor.posdeev@gmail.com>"]
 readme = "README.md"
