@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from scipy.integrate import simps
+from scipy.integrate import simpson
 from scipy.optimize import least_squares, fsolve
 import matplotlib.pyplot as plt
 from typing import Union
@@ -74,20 +74,20 @@ class VolatilitySmile:
         k_put = np.arange(k_min, forward, dk)
         k_call = np.arange(forward, k_max, dk)
         v = 2 * np.exp(r_counter * self.tau) * (
-            simps(y=put_pricer(k_put) / k_put ** 2, x=k_put) +
-            simps(y=call_pricer(k_call) / k_call ** 2, x=k_call)
+            simpson(y=put_pricer(k_put) / k_put ** 2, x=k_put) +
+            simpson(y=call_pricer(k_call) / k_call ** 2, x=k_call)
         )
 
         # mfiv
         if svix:
             v = 2 * np.exp(r_counter * self.tau) / (forward ** 2) * (
-                simps(y=put_pricer(k_put), x=k_put) +
-                simps(y=call_pricer(k_call), x=k_call)
+                simpson(y=put_pricer(k_put), x=k_put) +
+                simpson(y=call_pricer(k_call), x=k_call)
             )
         else:
             v = 2 * np.exp(r_counter * self.tau) * (
-                simps(y=put_pricer(k_put) / k_put ** 2, x=k_put) +
-                simps(y=call_pricer(k_call) / k_call ** 2, x=k_call)
+                simpson(y=put_pricer(k_put) / k_put ** 2, x=k_put) +
+                simpson(y=call_pricer(k_call) / k_call ** 2, x=k_call)
             )
 
         # annualize
@@ -98,24 +98,24 @@ class VolatilitySmile:
     def estimate_risk_neutral_density(
             self,
             rf: float,
-            forward: float,
+            forward: Union[float, np.ndarray],
             domain: Union[float, np.ndarray] = None,
-            normalize=False
+            normalize: bool = False
     ) -> Union[float, np.ndarray]:
         """Get risk-neutral density estimate of Breeden and Litzenberger.
 
         Parameters
         ----------
-        rf : float
+        rf
             risk-free rate in the numeraire currency, in frac of 1 p.a.
-        forward : float
-        domain : array-like
+        forward
+        domain
             strike to calculate the derivative; if not provided, will be inferred
         normalize : bool
             True to normalize the density to make it sum up to 1
         """
         if domain is None:
-            # assume six sigma events are vanishingly rare
+            # assume five sigma events are vanishingly rare
             # log(S_T) - log(S_t) = sigma
             n_sigma = self(forward) * self.tau * 5
             domain = np.arange(
@@ -124,17 +124,31 @@ class VolatilitySmile:
                 step=1e-04
             )
 
+        if not np.isscalar(forward):
+            if domain.ndim == 1:
+                raise ValueError("if `domain` is None or 1d vector, `forward` must be scalar!")
+            elif domain.ndim == 2:
+                if forward.shape[0] != 1:
+                    raise ValueError("if `domain` is 2d, `forward` must have `.shape[0] == 1`!")
+
+        if domain.ndim == 1:
+            return self.estimate_risk_neutral_density(
+                rf, forward, domain[:, np.newaxis], normalize
+            )[:, 0]
+
         # the Black-Scholes formula at K is being differentiated twice
         c_price = bs_price(strike=domain, rf=rf, tau=self.tau,
                            vola=self(domain), forward=forward, is_call=True)
 
         # (d^2 C)/(dk^2) * e^{rf}
-        res = np.diff(c_price, n=2) / np.diff(domain)[:-1] / np.diff(domain)[1:] * \
+        res = np.diff(c_price, n=2, axis=0) / \
+              np.diff(domain, axis=0)[:-1] / \
+              np.diff(domain, axis=0)[1:] * \
             np.exp(rf * self.tau)
 
         if normalize:
             # two points are lost due to 2nd order differentiation
-            res /= simps(res, domain[1:-1])
+            res = res / simpson(res, domain[1:-1], axis=0)
 
         return res
 

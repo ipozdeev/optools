@@ -60,3 +60,15 @@ class TestVolatilitySmile(TestCase):
             forward=self.data_rest["forward"],
             normalize=True
         )
+
+    def test_estimate_risk_neutral_density_vectorized(self):
+        vs = VolatilitySmile(lambda _x: self.v_atm, tau=self.tau)
+        domain = np.arange(
+            self.data_rest["forward"] / 2, self.data_rest["forward"] * 2, 0.01
+        )[:, np.newaxis] * np.ones((1, 3))
+        rnd = vs.estimate_risk_neutral_density(
+            rf=self.data_rest["r_counter"],
+            forward=self.data_rest["forward"] * np.array([[1, 1.05, 1.1]]),
+            domain=domain[:, [0]],
+            normalize=True
+        )
